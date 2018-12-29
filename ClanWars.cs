@@ -488,7 +488,7 @@ namespace ClanWarsModule
 		}
 
 
-		void Resurrect(int entID)
+		void Resurrect(int entID, string curPlayField, PVector3 curPos)
 		{
 			PlayerInfo	casResult	=mClanCastae.FirstOrDefault(e => e.entityId == entID);
 			PlayerInfo	tyResult	=mClanTyada.FirstOrDefault(e => e.entityId == entID);
@@ -500,26 +500,29 @@ namespace ClanWarsModule
 
 			if(casResult != null)
 			{
-				Resurrect(casResult, "Castae");
+				Resurrect(casResult, "Castae", curPlayField, curPos);
 			}
 			else
 			{
-				Resurrect(tyResult, "Tyada");
+				Resurrect(tyResult, "Tyada", curPlayField, curPos);
 			}
 		}
 
 
-		void Resurrect(PlayerInfo pi, string playField)
+		void Resurrect(PlayerInfo pi, string homePlayField, string curPlayField, PVector3 curPos)
 		{
 			AttentionMessage(pi.playerName + " will be reassembled by the Queen at a cost of " + pi.exp + "...");
 
-			List<PVector3>	starts	=(playField == "Castae")? mStartPositionsCastae : mStartPositionsTyada;
+			List<PVector3>	starts	=(homePlayField == "Castae")? mStartPositionsCastae : mStartPositionsTyada;
 
 			//if player is within a meter of the start locations, they probably
 			//just chose to respawn there anyway, so no need to teleport
 			foreach(PVector3 spots in starts)
 			{
-				float	dist	=VectorDistance(spots, pi.pos);
+				float	dist	=VectorDistance(spots, curPos);
+
+//				mGameAPI.Console_Write("Check for near rally: " + VectorToString(spots) + ", " + VectorToString(curPos) + ", " + dist);
+
 				if(dist < SpawnDetectDistanceMax)
 				{
 					mGameAPI.Console_Write("Player " + pi.playerName + " chose to spawn at rally anyway...  Good player!");
@@ -529,7 +532,7 @@ namespace ClanWarsModule
 
 			int	randSpot	=mRand.Next(0, starts.Count);
 
-			if(pi.playfield == pi.startPlayfield)
+			if(curPlayField == homePlayField)
 			{
 				IdPositionRotation	idpr	=new IdPositionRotation(pi.entityId, starts[randSpot], new PVector3());
 				mGameAPI.Console_Write("Player " + pi.playerName + " being moved to rally from current planet...");
@@ -541,7 +544,7 @@ namespace ClanWarsModule
 			{
 				PVector3	pos	=starts[randSpot];
 
-				IdPlayfieldPositionRotation	ipfpr	=new IdPlayfieldPositionRotation(pi.entityId, playField, pos, new PVector3());
+				IdPlayfieldPositionRotation	ipfpr	=new IdPlayfieldPositionRotation(pi.entityId, homePlayField, pos, new PVector3());
 
 				mGameAPI.Console_Write("Player " + pi.playerName + " being moved to rally from offworld...");
 				mGameAPI.Game_Request(CmdId.Request_Player_ChangePlayerfield, (ushort)CmdId.Request_Player_ChangePlayerfield, ipfpr);
@@ -675,7 +678,7 @@ namespace ClanWarsModule
 
 				//player has respawned (we hope)
 				//teleport them to rally and deduct score
-				Resurrect(pi.entityId);
+				Resurrect(pi.entityId, pi.playfield, pi.pos);
 			}
 			else
 			{
