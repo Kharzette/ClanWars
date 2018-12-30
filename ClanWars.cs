@@ -20,8 +20,15 @@ namespace ClanWarsModule
 
 		Random	mRand;
 
+		//start pad position stuff
 		bool			mbStartsRecordedTyada, mbStartsRecordedCastae;
 		List<PVector3>	mStartPositionsTyada, mStartPositionsCastae;
+
+		//structure ids for the rally buildings
+		int	mTyadaRallyID, mCastaeRallyID;
+
+		//playfield ids for the homeworlds
+		int	mTyadaPFID, mCastaePFID;
 
 		//offsets to the spawn pads in structure coordinates
 		List<PVector3>	mPadOffsets;
@@ -40,6 +47,9 @@ namespace ClanWarsModule
 		//is the match in progress?
 		bool	mbMatchStarted	=false;
 
+		//clans created?
+		bool	mbClanTyadaCreated, mbClanCastaeCreated;
+
 		const int		TeamSize				=4;		//TODO: read from a config file
 		const int		MatchDurationMinutes	=10;
 		const float		SpawnDetectDistanceMin	=1;		//movement indicating player is in control
@@ -52,6 +62,10 @@ namespace ClanWarsModule
 
 		//timer to poll for vital game entity data
 		Timer	mGameDataTimer;
+
+		//countdown timer
+		Timer	mCountDownTimer;
+		int		mSecondRemaining;
 
 
         public void Game_Start(ModGameAPI dediAPI)
@@ -120,6 +134,23 @@ namespace ClanWarsModule
             {
                 switch (eventId)
                 {
+					case CmdId.Event_Playfield_Stats:
+						PlayfieldStats	pfs	=data as PlayfieldStats;
+						if(pfs == null)
+						{
+							return;
+						}
+
+						if(pfs.playfield == "Tyada")
+						{
+							mTyadaPFID	=pfs.processId;
+						}
+						else if(pfs.playfield == "Castae")
+						{
+							mCastaePFID	=pfs.processId;
+						}
+						break;
+
 					case CmdId.Event_Playfield_List:
 						PlayfieldList	pfl	=data as PlayfieldList;
 						foreach(string pf in pfl.playfields)
@@ -128,11 +159,13 @@ namespace ClanWarsModule
 							{
 								mGameAPI.Game_Request(CmdId.Request_GlobalStructure_Update, (ushort)0, new PString("Tyada"));
 								mGameAPI.Console_Write("Playfield list shows Tyada up");
+								mGameAPI.Game_Request(CmdId.Request_Playfield_Stats, 0, new PString("Tyada"));
 							}
 							else if(pf == "Castae" && !mbStartsRecordedCastae)
 							{
 								mGameAPI.Game_Request(CmdId.Request_GlobalStructure_Update, (ushort)0, new PString("Castae"));
 								mGameAPI.Console_Write("Playfield list shows Castae up");
+								mGameAPI.Game_Request(CmdId.Request_Playfield_Stats, 0, new PString("Castae"));
 							}
 						}
 						break;
@@ -149,11 +182,13 @@ namespace ClanWarsModule
 								{
 									MakeTyadaStartPositions(gsi.pos);
 									mbStartsRecordedTyada	=true;
+									mTyadaRallyID			=gsi.id;
 								}
 								else if(gsi.name == "Castae Rally")
 								{
 									MakeCastaeStartPositions(gsi.pos);
 									mbStartsRecordedCastae	=true;
+									mCastaeRallyID			=gsi.id;
 								}
 							}
 						}
@@ -197,9 +232,9 @@ namespace ClanWarsModule
 								}
 								else
 								{
-									mGameAPI.Console_Write("Player " + pi.playerName + " late join...");
 									if(!bInClanCastae(pi) && !bInClanTyada(pi))
 									{
+										mGameAPI.Console_Write("Player " + pi.playerName + " late join...");
 										AttentionMessage(pi.playerName + " has joined too late!");
 									}
 								}
@@ -213,6 +248,18 @@ namespace ClanWarsModule
 									mGameAPI.Console_Write("Player " + pi.playerName + " joins Castae...");
 									AttentionMessage(pi.playerName + " has joined Clan Castae!");
 									mClanCastae.Add(pi);
+
+									if(!mbClanCastaeCreated)
+									{
+										//good time to make the factions
+										string	makeFact	="remoteex cl=" + pi.clientId + " faction create Castae";
+										mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new PString(makeFact));
+										mbClanCastaeCreated	=true;
+									}
+
+									//put them in the clan
+									string	joinFact	="remoteex cl=" + pi.clientId + " faction join Castae " + pi.playerName;
+									mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new PString(joinFact));
 								}
 							}
 							else if(pi.startPlayfield == "Tyada")
@@ -222,6 +269,18 @@ namespace ClanWarsModule
 									mGameAPI.Console_Write("Player " + pi.playerName + " joins Tyada...");
 									AttentionMessage(pi.playerName + " has joined Clan Tyada!");
 									mClanTyada.Add(pi);
+
+									if(!mbClanTyadaCreated)
+									{
+										//make faction
+										string	makeFact	="remoteex cl=" + pi.clientId + " faction create Tyada";
+										mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new PString(makeFact));
+										mbClanTyadaCreated	=true;
+									}
+
+									//put them in the clan
+									string	joinFact	="remoteex cl=" + pi.clientId + " faction join Tyada " + pi.playerName;
+									mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new PString(joinFact));
 								}
 							}
 							else
@@ -348,7 +407,6 @@ namespace ClanWarsModule
 
         public void Game_Update()
         {
-
         }
 
         public void Game_Exit()
@@ -361,9 +419,29 @@ namespace ClanWarsModule
 		{
 			mbMatchStarted	=true;
 
-			//find the rally door entities
-			mGameAPI.Game_Request(CmdId.Request_Playfield_Entity_List, (ushort)0, new PString("Castae"));
-			mGameAPI.Game_Request(CmdId.Request_Playfield_Entity_List, (ushort)0, new PString("Tyada"));
+			mSecondRemaining	=6;
+
+			mCountDownTimer	=new Timer(1000);
+
+			mCountDownTimer.AutoReset	=true;
+			mCountDownTimer.Elapsed		+=OnCountDown;
+			mCountDownTimer.Start();
+		}
+
+
+		void UnlockDoors()
+		{
+			//tyada door
+			string	doDoors	="remoteex pf=" + mTyadaPFID + " setdevicespublic " + mTyadaRallyID + " Door";
+			mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new PString(doDoors));
+
+			mGameAPI.Console_Write("Unlocking Tyada Door with: " + doDoors);
+
+			//castae door
+			doDoors	="remoteex pf=" + mCastaePFID + " setdevicespublic " + mCastaeRallyID + " Door";
+			mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new PString(doDoors));
+
+			mGameAPI.Console_Write("Unlocking Castae Door with: " + doDoors);
 		}
 
 
@@ -684,6 +762,24 @@ namespace ClanWarsModule
 			{
 				TrackDeadPlayers(pi);
 			}
+		}
+
+
+		void OnCountDown(Object src, ElapsedEventArgs eea)
+		{
+			mSecondRemaining--;
+
+			if(mSecondRemaining > 0)
+			{
+				AlertMessage("Match begins in " + mSecondRemaining + "...");
+				return;
+			}
+
+			AlertMessage("Fight for the glory of Queen Styx!");
+
+			UnlockDoors();
+
+			mCountDownTimer.Stop();
 		}
 
 
