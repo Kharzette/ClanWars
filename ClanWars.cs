@@ -1,9 +1,10 @@
-﻿using Eleon.Modding;
-using System;
+﻿using System;
+using System.Reflection;
 using System.Timers;
 using System.IO;
 using System.Collections.Generic;
 using System.Linq;
+using Eleon.Modding;
 
 
 namespace ClanWarsModule
@@ -21,6 +22,9 @@ namespace ClanWarsModule
 		Random	mRand;
 
 		AIQueen	mStyx;
+
+		//constants from a config file
+		Dictionary<string, int>	mConstants;
 
 		//start pad position stuff
 		bool			mbStartsRecordedTyada, mbStartsRecordedCastae;
@@ -77,13 +81,10 @@ namespace ClanWarsModule
 		int		mSecondRemaining;
 
 		//this whole section should come from a config file
-		const int		TeamSize				=4;		//TODO: read from a config file
-		const int		MatchDurationMinutes	=10;
 		const float		SpawnDetectDistanceMin	=1;		//movement indicating player is in control
 		const float		SpawnDetectDistanceMax	=20;	//movement indicating player is in control
 		const double	MoveTestInterval		=500;	//wild guess
 		const double	GameDataPollInterval	=2000;	//periodic retry to get valid data for start spots and doors and such
-		const double	PosAndRotUpdateInterval	=1000;	//get updates on all players position and rotation at this frequency
 		const float		NearQueenDistance		=10f;
 
 
@@ -93,6 +94,8 @@ namespace ClanWarsModule
 
 			mRand	=new Random();
 			mStyx	=new AIQueen(NearQueenDistance, dediAPI);
+
+			mConstants	=new Dictionary<string, int>();
 
 			mClanCastae	=new List<PlayerInfo>();
 			mClanTyada	=new List<PlayerInfo>();
@@ -128,6 +131,8 @@ namespace ClanWarsModule
 
 			mPlayerPosNRots			=new Dictionary<int, IdPositionRotation>();
 			mPlayerCurPlayFields	=new Dictionary<int, string>();
+
+			LoadConstants();
 
             mGameAPI.Console_Write("Clan vs Clan action!");
         }
@@ -517,7 +522,7 @@ namespace ClanWarsModule
 			mCountDownTimer.Start();
 
 			//start the timer that gathers info on all player's locations
-			mPosRotTimer			=new Timer(PosAndRotUpdateInterval);
+			mPosRotTimer			=new Timer(mConstants["PosAndRotUpdateInterval"]);
 			mPosRotTimer.AutoReset	=true;
 			mPosRotTimer.Elapsed	+=OnPosAndRotTimer;
 			mPosRotTimer.Start();
@@ -689,7 +694,7 @@ namespace ClanWarsModule
 		bool bMatchReadyToStart()
 		{
 			return	true;	//for testing
-			return	(mClanCastae.Count == TeamSize && mClanTyada.Count == TeamSize);
+			return	(mClanCastae.Count == mConstants["TeamSize"] && mClanTyada.Count == mConstants["TeamSize"]);
 		}
 
 
@@ -951,5 +956,96 @@ namespace ClanWarsModule
                 mGameAPI.Game_Request(CmdId.Request_Player_Info, (ushort)CmdId.Request_Player_Info, pid);
 			}
 		}
-    }
+
+
+ 		void LoadConstants()
+		{
+			//can't be too sure of what the current directory is
+			Assembly	ass	=Assembly.GetExecutingAssembly();
+
+			string	dllDir	=Path.GetDirectoryName(ass.Location);
+
+			string	filePath	=Path.Combine(dllDir, "Constants.txt");
+
+			mGameAPI.Console_Write("Loading Config file for constants: " + filePath);
+
+			FileStream	fs	=new FileStream(filePath, FileMode.Open, FileAccess.Read);
+			if(fs == null)
+			{
+				return;
+			}
+
+			StreamReader	sr	=new StreamReader(fs);
+			if(sr == null)
+			{
+				return;
+			}
+
+			while(!sr.EndOfStream)
+			{
+				string	line	=sr.ReadLine();
+				if(line == "")
+				{
+					//skip blank lines
+					continue;
+				}
+
+				string	[]toks	=line.Split(' ', '\t');
+
+				if(toks.Length < 2)
+				{
+					//bad line
+					mGameAPI.Console_Write("Bad line in constants config file at position: " + sr.BaseStream.Position);
+					continue;
+				}
+
+				//skip whitespace
+				int	idx	=0;
+				while(idx < toks.Length)
+				{
+					if(toks[idx] == "" || toks[idx] == " " || toks[idx] == "\t")
+					{
+						idx++;
+						continue;
+					}
+					break;
+				}
+
+				if(toks[idx].StartsWith("//"))
+				{
+					continue;
+				}
+
+				string	cname	=toks[idx];
+				idx++;
+
+				while(idx < toks.Length)
+				{
+					if(toks[idx] == "" || toks[idx] == " " || toks[idx] == "\t")
+					{
+						idx++;
+						continue;
+					}
+					break;
+				}
+
+				int	val	=0;
+				if(!int.TryParse(toks[idx], out val))
+				{
+					mGameAPI.Console_Write("Bad token looking for item id in constants config file at position: " + sr.BaseStream.Position);
+					continue;
+				}
+
+				mConstants.Add(cname, val);
+			}
+
+			sr.Close();
+			fs.Close();
+
+			foreach(KeyValuePair<string, int> vals in mConstants)
+			{
+				mGameAPI.Console_Write("Const: " + vals.Key + ", " + vals.Value);
+			}
+		}
+   }
 }

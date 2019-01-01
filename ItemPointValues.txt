@@ -1,4 +1,6 @@
-﻿2272	"Iron Ingots"			10
+﻿//not picky about spaces or tabs, use whateva
+//I like tabs
+2272	"Iron Ingots"			10
 2273	"Cobalt Ingots"			30
 2274	"Silicon Ingots"		10
 2275	"Neodymium Ingots"		50

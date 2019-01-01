@@ -57,6 +57,9 @@
     <Compile Include="VecStuff.cs" />
   </ItemGroup>
   <ItemGroup>
+    <Content Include="Constants.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <Content Include="ItemPointValues.txt">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>

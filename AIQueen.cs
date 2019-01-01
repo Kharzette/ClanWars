@@ -1,8 +1,5 @@
-﻿using System;
-using System.Reflection;
+﻿using System.Reflection;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 using System.IO;
 using Eleon.Modding;
 
@@ -113,8 +110,6 @@ namespace ClanWarsModule
 			{
 				string	line	=sr.ReadLine();
 
-				Goody	good	=new Goody();
-
 				string	[]toks	=line.Split(' ', '\t');
 
 //				mgapi.Console_Write("Got " + toks.Length + " tokenses for line " + line);
@@ -137,6 +132,13 @@ namespace ClanWarsModule
 					}
 					break;
 				}
+
+				if(toks[idx].StartsWith("//"))
+				{
+					continue;
+				}
+
+				Goody	good	=new Goody();
 
 				if(!int.TryParse(toks[idx], out good.mID))
 				{
