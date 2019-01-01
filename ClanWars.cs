@@ -20,12 +20,17 @@ namespace ClanWarsModule
 
 		Random	mRand;
 
+		AIQueen	mStyx;
+
 		//start pad position stuff
 		bool			mbStartsRecordedTyada, mbStartsRecordedCastae;
 		List<PVector3>	mStartPositionsTyada, mStartPositionsCastae;
 
 		//structure ids for the rally buildings
 		int	mTyadaRallyID, mCastaeRallyID;
+
+		//structure ids for the temple buildings
+		int	mTyadaTempleID, mCastaeTempleID;
 
 		//playfield ids for the homeworlds
 		int	mTyadaPFID, mCastaePFID;
@@ -36,6 +41,12 @@ namespace ClanWarsModule
 		//players in the match
         List<PlayerInfo>	mClanCastae;
         List<PlayerInfo>	mClanTyada;
+
+		//positions and rotations updated at intervals
+		Dictionary<int, IdPositionRotation>	mPlayerPosNRots;
+
+		//current playfield of players
+		Dictionary<int, string>	mPlayerCurPlayFields;
 
 		//players disconnected during a match (they can rejoin)
         List<PlayerInfo>	mCastaeDiscos;
@@ -50,22 +61,28 @@ namespace ClanWarsModule
 		//clans created?
 		bool	mbClanTyadaCreated, mbClanCastaeCreated;
 
-		const int		TeamSize				=4;		//TODO: read from a config file
-		const int		MatchDurationMinutes	=10;
-		const float		SpawnDetectDistanceMin	=1;		//movement indicating player is in control
-		const float		SpawnDetectDistanceMax	=20;	//movement indicating player is in control
-		const double	MoveTestInterval		=500;	//wild guess
-		const double	GameDataPollInterval	=2000;	//periodic retry to get valid data for start spots and doors and such
-
 		//timers watching for respawn / movement
 		Dictionary<Timer, int>	mActiveTimers;
 
 		//timer to poll for vital game entity data
 		Timer	mGameDataTimer;
 
+		//timer to update positions for all players
+		Timer	mPosRotTimer;
+
 		//countdown timer
 		Timer	mCountDownTimer;
 		int		mSecondRemaining;
+
+		//this whole section should come from a config file
+		const int		TeamSize				=4;		//TODO: read from a config file
+		const int		MatchDurationMinutes	=10;
+		const float		SpawnDetectDistanceMin	=1;		//movement indicating player is in control
+		const float		SpawnDetectDistanceMax	=20;	//movement indicating player is in control
+		const double	MoveTestInterval		=500;	//wild guess
+		const double	GameDataPollInterval	=2000;	//periodic retry to get valid data for start spots and doors and such
+		const double	PosAndRotUpdateInterval	=1000;	//get updates on all players position and rotation at this frequency
+		const float		NearQueenDistance		=10f;
 
 
         public void Game_Start(ModGameAPI dediAPI)
@@ -73,6 +90,7 @@ namespace ClanWarsModule
             mGameAPI	=dediAPI;
 
 			mRand	=new Random();
+			mStyx	=new AIQueen(NearQueenDistance);
 
 			mClanCastae	=new List<PlayerInfo>();
 			mClanTyada	=new List<PlayerInfo>();
@@ -103,6 +121,9 @@ namespace ClanWarsModule
 			mPadOffsets.Add(new PVector3(-2, 7.5f, 0));
 			mPadOffsets.Add(new PVector3(-2, 7.5f, 2));
 			mPadOffsets.Add(new PVector3(-2, 7.5f, 4));
+
+			mPlayerPosNRots			=new Dictionary<int, IdPositionRotation>();
+			mPlayerCurPlayFields	=new Dictionary<int, string>();
 
             mGameAPI.Console_Write("Clan vs Clan action!");
         }
@@ -190,6 +211,19 @@ namespace ClanWarsModule
 									mbStartsRecordedCastae	=true;
 									mCastaeRallyID			=gsi.id;
 								}
+								else if(gsi.name == "Temple of Styx")
+								{
+									if(pfstructs.Key == "Castae")
+									{
+										mCastaeTempleID		=gsi.id;
+										mStyx.SetCastaeTemplePos(gsi.pos);
+									}
+									else if(pfstructs.Key == "Tyada")
+									{
+										mTyadaTempleID	=gsi.id;
+										mStyx.SetTyadaTemplePos(gsi.pos);
+									}
+								}
 							}
 						}
 						break;
@@ -249,6 +283,10 @@ namespace ClanWarsModule
 									AttentionMessage(pi.playerName + " has joined Clan Castae!");
 									mClanCastae.Add(pi);
 
+									//track player current playfield
+									mPlayerCurPlayFields.Add(pi.entityId, pi.playfield);
+									mPlayerPosNRots.Add(pi.entityId, new IdPositionRotation(pi.entityId, pi.pos, pi.rot));
+
 									if(!mbClanCastaeCreated)
 									{
 										//good time to make the factions
@@ -269,6 +307,10 @@ namespace ClanWarsModule
 									mGameAPI.Console_Write("Player " + pi.playerName + " joins Tyada...");
 									AttentionMessage(pi.playerName + " has joined Clan Tyada!");
 									mClanTyada.Add(pi);
+
+									//track player current playfield / position
+									mPlayerCurPlayFields.Add(pi.entityId, pi.playfield);
+									mPlayerPosNRots.Add(pi.entityId, new IdPositionRotation(pi.entityId, pi.pos, pi.rot));
 
 									if(!mbClanTyadaCreated)
 									{
@@ -306,10 +348,20 @@ namespace ClanWarsModule
 						{
 							return;
 						}
+
+						//update player positions if this is called for a player
+						if(mPlayerPosNRots.ContainsKey(idpr.id))
+						{
+							mPlayerPosNRots[idpr.id].pos	=idpr.pos;
+							mPlayerPosNRots[idpr.id].rot	=idpr.rot;
+
+//							mGameAPI.Console_Write("PosNRot update for player: " + idpr.id + " : " + VectorToString(idpr.pos));
+							CheckStyx(idpr.id);
+						}
 						break;
 
                     case CmdId.Event_Player_Connected:
-                        mGameAPI.Game_Request(CmdId.Request_Player_Info, (ushort)CmdId.Request_Player_Info, (Id)data);
+                        mGameAPI.Game_Request(CmdId.Request_Player_Info, 0, (Id)data);
                         break;
 
                     case CmdId.Event_Player_Disconnected:
@@ -378,6 +430,15 @@ namespace ClanWarsModule
 						}
 
 						mGameAPI.Console_Write("Id of " + idpf.id + " changed playfield to " + idpf.playfield + "...");
+
+						if(mPlayerCurPlayFields.ContainsKey(idpf.id))
+						{
+							mPlayerCurPlayFields[idpf.id]	=idpf.playfield;
+						}
+						else
+						{
+							mGameAPI.Console_Write("Playfield change for player not in the playfield dict");
+						}
 						break;
 
 					case CmdId.Event_Playfield_Entity_List:
@@ -426,6 +487,12 @@ namespace ClanWarsModule
 			mCountDownTimer.AutoReset	=true;
 			mCountDownTimer.Elapsed		+=OnCountDown;
 			mCountDownTimer.Start();
+
+			//start the timer that gathers info on all player's locations
+			mPosRotTimer			=new Timer(PosAndRotUpdateInterval);
+			mPosRotTimer.AutoReset	=true;
+			mPosRotTimer.Elapsed	+=OnPosAndRotTimer;
+			mPosRotTimer.Start();
 		}
 
 
@@ -442,6 +509,14 @@ namespace ClanWarsModule
 			mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new PString(doDoors));
 
 			mGameAPI.Console_Write("Unlocking Castae Door with: " + doDoors);
+
+			//tyada temple door
+			doDoors	="remoteex pf=" + mTyadaPFID + " setdevicespublic " + mTyadaTempleID + " Door";
+			mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new PString(doDoors));
+
+			//castae temple door
+			doDoors	="remoteex pf=" + mCastaePFID + " setdevicespublic " + mCastaeTempleID + " Door";
+			mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new PString(doDoors));
 		}
 
 
@@ -519,53 +594,6 @@ namespace ClanWarsModule
 		}
 
 
-		PVector3 AdjustUp(PVector3 pos)
-		{
-			PVector3	ret	=pos;
-
-			ret.y	+=0.1f;
-
-			return	ret;
-		}
-
-
-		string VectorToString(PVector3 vec)
-		{
-			return	"( " + vec.x + ", " + vec.y + ", " + vec.z + " )";
-		}
-
-
-		float VectorLength(PVector3 vec)
-		{
-			float	lenSQ	=(vec.x * vec.x) +
-				(vec.y * vec.y) + (vec.z * vec.z);
-
-			return	(float)Math.Sqrt(lenSQ);
-		}
-
-
-		float VectorDistance(PVector3 vecA, PVector3 vecB)
-		{
-			vecA.x	-=vecB.x;
-			vecA.y	-=vecB.y;
-			vecA.z	-=vecB.z;
-
-			return	VectorLength(vecA);
-		}
-
-
-		PVector3 VectorAdd(PVector3 vecA, PVector3 vecB)
-		{
-			PVector3	ret;
-
-			ret.x	=vecA.x + vecB.x;
-			ret.y	=vecA.y + vecB.y;
-			ret.z	=vecA.z + vecB.z;
-
-			return	ret;
-		}
-
-
 		void Resurrect(int entID, string curPlayField, PVector3 curPos)
 		{
 			PlayerInfo	casResult	=mClanCastae.FirstOrDefault(e => e.entityId == entID);
@@ -597,7 +625,7 @@ namespace ClanWarsModule
 			//just chose to respawn there anyway, so no need to teleport
 			foreach(PVector3 spots in starts)
 			{
-				float	dist	=VectorDistance(spots, curPos);
+				float	dist	=VecStuff.Distance(spots, curPos);
 
 //				mGameAPI.Console_Write("Check for near rally: " + VectorToString(spots) + ", " + VectorToString(curPos) + ", " + dist);
 
@@ -632,6 +660,7 @@ namespace ClanWarsModule
 
 		bool bMatchReadyToStart()
 		{
+			return	true;	//for testing
 			return	(mClanCastae.Count == TeamSize && mClanTyada.Count == TeamSize);
 		}
 
@@ -686,7 +715,7 @@ namespace ClanWarsModule
 		{
 			foreach(PVector3 ofs in mPadOffsets)
 			{
-				mStartPositionsTyada.Add(VectorAdd(ofs, structurePos));
+				mStartPositionsTyada.Add(VecStuff.Add(ofs, structurePos));
 			}
 		}
 
@@ -695,7 +724,29 @@ namespace ClanWarsModule
 		{
 			foreach(PVector3 ofs in mPadOffsets)
 			{
-				mStartPositionsCastae.Add(VectorAdd(ofs, structurePos));
+				mStartPositionsCastae.Add(VecStuff.Add(ofs, structurePos));
+			}
+		}
+
+
+		void CheckStyx(int entID)
+		{
+			if(mPlayerCurPlayFields.ContainsKey(entID))
+			{
+				if(mPlayerCurPlayFields[entID] == "Tyada")
+				{
+					if(mStyx.bCheckNear(mPlayerPosNRots[entID].pos, true))
+					{
+						mGameAPI.Console_Write("Player " + entID + " near Styx!");
+					}
+				}
+				else if(mPlayerCurPlayFields[entID] == "Castae")
+				{
+					if(mStyx.bCheckNear(mPlayerPosNRots[entID].pos, false))
+					{
+						mGameAPI.Console_Write("Player " + entID + " near Styx!");
+					}
+				}
 			}
 		}
 
@@ -706,7 +757,7 @@ namespace ClanWarsModule
 
 			//printing stuff trying to find some sort of "player just spawned" indicator
 			mGameAPI.Console_Write("Dead Tracking: " + pi.health + ", " +
-				VectorToString(pi.pos) + ", " + VectorToString(deader.mPos));
+				VecStuff.ToString(pi.pos) + ", " + VecStuff.ToString(deader.mPos));
 
 			if(deader.mPos.x == 0f && deader.mPos.y == 0f && deader.mPos.z == 0f)
 			{
@@ -731,7 +782,7 @@ namespace ClanWarsModule
 			//check for movement
 			//if there's a large move, it probably means a spawn point was chosen
 			//different from the "spawn nearby" option
-			float	dist	=VectorDistance(pi.pos, deader.mPos);
+			float	dist	=VecStuff.Distance(pi.pos, deader.mPos);
 			if(dist > SpawnDetectDistanceMax)
 			{
 				//big jump means spawn point chosen
@@ -761,6 +812,34 @@ namespace ClanWarsModule
 			else
 			{
 				TrackDeadPlayers(pi);
+			}
+		}
+
+
+		void OnPosAndRotTimer(Object src, ElapsedEventArgs eea)
+		{
+//			mGameAPI.Console_Write("PosAndRot timer tick");
+
+			foreach(PlayerInfo pi in mClanCastae)
+			{
+				//skip deadites
+				if(mDeadPlayers.Where(d => d.mEntID == pi.entityId).Count() > 0)
+				{
+					continue;
+				}
+
+				mGameAPI.Game_Request(CmdId.Request_Entity_PosAndRot, 0, new Id(pi.entityId));
+			}
+
+			foreach(PlayerInfo pi in mClanTyada)
+			{
+				//skip deadites
+				if(mDeadPlayers.Where(d => d.mEntID == pi.entityId).Count() > 0)
+				{
+					continue;
+				}
+
+				mGameAPI.Game_Request(CmdId.Request_Entity_PosAndRot, 0, new Id(pi.entityId));
 			}
 		}
 

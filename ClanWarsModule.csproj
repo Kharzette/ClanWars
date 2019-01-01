@@ -51,8 +51,10 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="AIQueen.cs" />
     <Compile Include="ClanWars.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="VecStuff.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>
