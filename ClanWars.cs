@@ -55,6 +55,8 @@ namespace ClanWarsModule
 		//players currently dead and respawning
 		List<Deadites>	mDeadPlayers;
 
+		List<int>	mPlayersSacrificing;
+
 		//is the match in progress?
 		bool	mbMatchStarted	=false;
 
@@ -90,7 +92,7 @@ namespace ClanWarsModule
             mGameAPI	=dediAPI;
 
 			mRand	=new Random();
-			mStyx	=new AIQueen(NearQueenDistance);
+			mStyx	=new AIQueen(NearQueenDistance, dediAPI);
 
 			mClanCastae	=new List<PlayerInfo>();
 			mClanTyada	=new List<PlayerInfo>();
@@ -99,6 +101,8 @@ namespace ClanWarsModule
 			mTyadaDiscos	=new List<PlayerInfo>();
 
 			mDeadPlayers	=new List<Deadites>();
+
+			mPlayersSacrificing	=new List<int>();
 
 			mStartPositionsTyada		=new List<PVector3>();
 			mStartPositionsCastae		=new List<PVector3>();
@@ -155,6 +159,30 @@ namespace ClanWarsModule
             {
                 switch (eventId)
                 {
+					case CmdId.Event_Player_ItemExchange:
+						ItemExchangeInfo	iei	=data as ItemExchangeInfo;
+						if(iei == null)
+						{
+							return;
+						}
+
+						if(!mPlayersSacrificing.Contains(iei.id))
+						{
+							mGameAPI.Console_Write("Player " + iei.id + " got itemExchange event but isn't sacrificing... Maybe another mod sent this event.");
+						}
+						else
+						{
+							mStyx.SacrificeItems(iei.id, iei.items);
+							mPlayersSacrificing.Remove(iei.id);
+
+							//for debugging prices and such
+							foreach(ItemStack st in iei.items)
+							{
+								mGameAPI.Console_Write("Item: " + st.id + ", " + st.count);
+							}
+						}
+						break;
+
 					case CmdId.Event_Playfield_Stats:
 						PlayfieldStats	pfs	=data as PlayfieldStats;
 						if(pfs == null)
@@ -737,17 +765,32 @@ namespace ClanWarsModule
 				{
 					if(mStyx.bCheckNear(mPlayerPosNRots[entID].pos, true))
 					{
-						mGameAPI.Console_Write("Player " + entID + " near Styx!");
+						if(!mPlayersSacrificing.Contains(entID))
+						{
+							mPlayersSacrificing.Add(entID);
+							SacrificeItems(entID);
+						}
 					}
 				}
 				else if(mPlayerCurPlayFields[entID] == "Castae")
 				{
 					if(mStyx.bCheckNear(mPlayerPosNRots[entID].pos, false))
 					{
-						mGameAPI.Console_Write("Player " + entID + " near Styx!");
+						if(!mPlayersSacrificing.Contains(entID))
+						{
+							mPlayersSacrificing.Add(entID);
+							SacrificeItems(entID);
+						}
 					}
 				}
 			}
+		}
+
+
+		void SacrificeItems(int entID)
+		{
+			ItemExchangeInfo	iei	=new ItemExchangeInfo(entID, "Sacrifice", "Bring forth your sacrifice and you shall be richly rewarded!", "Give", null);
+			mGameAPI.Game_Request(CmdId.Request_Player_ItemExchange, 0, iei);
 		}
 
 

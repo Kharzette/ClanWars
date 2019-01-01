@@ -1,0 +1,17 @@
+﻿2272	"Iron Ingots"			10
+2273	"Cobalt Ingots"			30
+2274	"Silicon Ingots"		10
+2275	"Neodymium Ingots"		50
+2276	"Copper Ingots"			10
+2278	"Erestrum Ingots"		80
+2279	"Zasconium Ingots"		90
+2285	"Sathium Ingots"		40
+2298	"Gold Ingots"			100
+2277	"Prometheum Pellets"	40
+2294	"Refined Pentaxid"		150
+2299	"Gold Coins"			100
+2373	"Fusion Cell"			800
+2328	"Xeno Substrate"		60
+2396	"Water"					10
+2429	"Pie"					200
+2378	"Beer"					200

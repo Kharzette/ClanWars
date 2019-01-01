@@ -56,5 +56,10 @@
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="VecStuff.cs" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="ItemPointValues.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>
