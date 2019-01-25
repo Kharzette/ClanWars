@@ -1,6 +1,7 @@
-﻿using System.Reflection;
-using System.Collections.Generic;
+﻿using System;
 using System.IO;
+using System.Reflection;
+using System.Collections.Generic;
 using Eleon.Modding;
 
 
@@ -16,11 +17,16 @@ namespace ClanWarsModule
 		}
 
 		Dictionary<int, Goody>	mWantedItemsValue	=new Dictionary<int, Goody>();
-		Dictionary<int, int>	mIndividualScores	=new Dictionary<int, int>();
+		Dictionary<string, int>	mIndividualScores	=new Dictionary<string, int>();
 
 		PVector3	mTyadaPos, mCastaePos;
 
 		float		mNearDistance;	//how far away to contribute ingotses?
+
+		internal event EventHandler	eSpeakToPlayer;
+		internal event EventHandler	eSpeakToPlayerClan;
+		internal event EventHandler	eSpeakToAll;
+		internal event EventHandler	eReturnItems;
 
 
 		internal AIQueen(float nearDist, ModGameAPI mgapi)
@@ -65,9 +71,19 @@ namespace ClanWarsModule
 		}
 
 
-		internal void SacrificeItems(int entID, ItemStack []items)
+		internal void SacrificeItems(string steamID, ItemStack []items)
 		{
 			int	totalValue	=0;
+
+			if(!mIndividualScores.ContainsKey(steamID))
+			{
+				mIndividualScores.Add(steamID, 0);
+			}
+
+			bool	bSomeUseless	=false;
+			bool	bSomeUseful		=false;
+
+			List<ItemStack>	mUseless	=new List<ItemStack>();
 
 			foreach(ItemStack st in items)
 			{
@@ -77,9 +93,77 @@ namespace ClanWarsModule
 
 					totalValue	+=val;
 
-					mIndividualScores[entID]	+=val;
+					mIndividualScores[steamID]	+=val;
+
+					bSomeUseful	=true;
+				}
+				else
+				{					
+					bSomeUseless	=true;
+					mUseless.Add(st);
 				}
 			}
+
+			if(bSomeUseful && bSomeUseless)
+			{
+				SpeakToPlayer(steamID, "Some of that was useful, thank you!  I grant your clan " + totalValue + " points!");
+			}
+			else if(bSomeUseful)
+			{
+				SpeakToPlayer(steamID, "Excellent, thank you!  I grant your clan " + totalValue + " points!");
+			}
+			else if(bSomeUseless)
+			{
+				SpeakToPlayer(steamID, "I have no need for these items.");
+			}
+			else
+			{
+				SpeakToPlayer(steamID, "Very well, return later when you have a proper sacrifice.");
+			}
+
+			ReturnItems(steamID, mUseless);
+
+			//msg to clan?
+			//mgapi.Console_Write("Styx awarding " + totalValue + " points to player " + steamID);
+		}
+
+
+		void ReturnItems(string steamID, List<ItemStack> items)
+		{
+			ItemReturnEventArgs	irea	=new ItemReturnEventArgs();
+
+			irea.mItems			=items;
+			irea.mPlayerSteamID	=steamID;
+
+			eReturnItems?.Invoke(null, irea);
+		}
+
+
+		void SpeakToPlayer(string steamID, string msg)
+		{
+			SpeakEventArgs	sea	=new SpeakEventArgs();
+
+			sea.mPlayerSteamID	=steamID;
+			sea.mMsg			=msg;
+
+			eSpeakToPlayer?.Invoke(this, sea);
+		}
+
+
+		void SpeakToPlayerClan(string steamID, string msg)
+		{
+			SpeakEventArgs	sea	=new SpeakEventArgs();
+
+			sea.mPlayerSteamID	=steamID;
+			sea.mMsg			=msg;
+
+			eSpeakToPlayerClan?.Invoke(this, sea);
+		}
+
+
+		void SpeakToAll(string msg)
+		{
+			eSpeakToAll?.Invoke(msg, null);
 		}
 
 
@@ -220,6 +304,11 @@ namespace ClanWarsModule
 			{
 				mgapi.Console_Write("Goody: " + goods.Value.mID + ", " + goods.Value.mName + ", " + goods.Value.mValue);
 			}
+		}
+
+
+		internal void DeductResCost(string steamID, int cost)
+		{
 		}
 	}
 }

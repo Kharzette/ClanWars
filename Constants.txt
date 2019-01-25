@@ -3,3 +3,5 @@ MatchDurationMinutes	10
 
 //the lower this number the more demand / cpu / traffic is likely spent
 PosAndRotUpdateInterval	1000	//get updates on all players position and rotation at this frequency
+
+StyxAskForMoreInterval	10		//time in seconds to ask for more goodies

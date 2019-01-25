@@ -46,6 +46,12 @@ namespace ClanWarsModule
         List<PlayerInfo>	mClanCastae;
         List<PlayerInfo>	mClanTyada;
 
+		//steam id to client id conversions
+		Dictionary<int, string>	mPlayerCIDToSteamID			=new Dictionary<int, string>();	
+		Dictionary<string, int>	mPlayerSteamIDToClientID	=new Dictionary<string, int>();
+		Dictionary<int, int>	mPlayerEntIDToClientID		=new Dictionary<int, int>();
+		Dictionary<string, int>	mPlayerSteamIDToEntID		=new Dictionary<string, int>();
+
 		//positions and rotations updated at intervals
 		Dictionary<int, IdPositionRotation>	mPlayerPosNRots;
 
@@ -59,7 +65,11 @@ namespace ClanWarsModule
 		//players currently dead and respawning
 		List<Deadites>	mDeadPlayers;
 
+		//players that are talking to the queen
 		List<int>	mPlayersSacrificing;
+
+		//timestamp when a player gave items to the queen
+		Dictionary<int, DateTime>	mPlayerSacTimes;
 
 		//is the match in progress?
 		bool	mbMatchStarted	=false;
@@ -95,6 +105,12 @@ namespace ClanWarsModule
 			mRand	=new Random();
 			mStyx	=new AIQueen(NearQueenDistance, dediAPI);
 
+			//wire events
+			mStyx.eReturnItems			+=OnStyxReturnItems;
+			mStyx.eSpeakToAll			+=OnStyxSpeakToAll;
+			mStyx.eSpeakToPlayer		+=OnStyxSpeakToPlayer;
+			mStyx.eSpeakToPlayerClan	+=OnStyxSpeakToPlayerClan;
+
 			mConstants	=new Dictionary<string, int>();
 
 			mClanCastae	=new List<PlayerInfo>();
@@ -106,6 +122,8 @@ namespace ClanWarsModule
 			mDeadPlayers	=new List<Deadites>();
 
 			mPlayersSacrificing	=new List<int>();
+
+			mPlayerSacTimes	=new Dictionary<int, DateTime>();
 
 			mStartPositionsTyada		=new List<PVector3>();
 			mStartPositionsCastae		=new List<PVector3>();
@@ -137,20 +155,130 @@ namespace ClanWarsModule
             mGameAPI.Console_Write("Clan vs Clan action!");
         }
 
-        private void ChatMessage(String msg)
+
+		void OnStyxReturnItems(Object sender, EventArgs ea)
+		{
+			ItemReturnEventArgs	irea	=ea as ItemReturnEventArgs;
+			if(irea == null || irea.mItems == null)
+			{
+				mGameAPI.Console_Write("Null item stack in OnStyxReturnItems!");
+				return;
+			}
+
+			if(!mPlayerSteamIDToEntID.ContainsKey(irea.mPlayerSteamID))
+			{
+				mGameAPI.Console_Write("No steam id to entity id conversion for steam id " + irea.mPlayerSteamID + " in OnStyxReturnItems!");
+				return;
+			}
+
+			int	eid	=mPlayerSteamIDToEntID[irea.mPlayerSteamID];
+
+			foreach(ItemStack ist in irea.mItems)
+			{
+				mGameAPI.Game_Request(CmdId.Request_Player_AddItem, 0, new IdItemStack(eid, ist));
+			}
+		}
+
+
+		void OnStyxSpeakToAll(Object sender, EventArgs ea)
+		{
+			string	msg	=sender as string;
+
+			NormalMessage(msg);
+		}
+
+
+		void OnStyxSpeakToPlayer(Object sender, EventArgs ea)
+		{
+			SpeakEventArgs	sea	=ea as SpeakEventArgs;
+			if(sea == null)
+			{
+				mGameAPI.Console_Write("Null SpeakEventArgs in OnStyxSpeakToPlayer!");
+				return;
+			}
+
+			if(!mPlayerSteamIDToEntID.ContainsKey(sea.mPlayerSteamID))
+			{
+				mGameAPI.Console_Write("No steam id to entity id conversion for steam id " + sea.mPlayerSteamID + " in OnStyxReturnItems!");
+				return;
+			}
+
+			int	eid	=mPlayerSteamIDToEntID[sea.mPlayerSteamID];
+
+			mGameAPI.Console_Write("Styx speaking to player: " + sea.mPlayerSteamID + " message: " + sea.mMsg);
+
+			PrivateMessage(eid, sea.mMsg);
+		}
+
+
+		void OnStyxSpeakToPlayerClan(Object sender, EventArgs ea)
+		{
+			SpeakEventArgs	sea	=ea as SpeakEventArgs;
+			if(sea == null)
+			{
+				mGameAPI.Console_Write("Null SpeakEventArgs in OnStyxSpeakToPlayer!");
+				return;
+			}
+
+			if(!mPlayerSteamIDToClientID.ContainsKey(sea.mPlayerSteamID))
+			{
+				mGameAPI.Console_Write("No steam id to client id conversion for steam id " + sea.mPlayerSteamID + " in OnStyxReturnItems!");
+				return;
+			}
+
+			int	cid	=mPlayerSteamIDToClientID[sea.mPlayerSteamID];
+
+			PlayerInfo	casResult	=mClanCastae.FirstOrDefault(e => e.clientId == cid);
+			if(casResult != null)
+			{
+				CastaeChat(sea.mMsg);
+				return;
+			}
+
+			PlayerInfo	tyResult	=mClanTyada.FirstOrDefault(e => e.clientId == cid);
+			if(tyResult != null)
+			{
+				TyadaChat(sea.mMsg);
+				return;
+			}
+
+			mGameAPI.Console_Write("Styx trying to speak to a player's clan when the player is not in one of the clans!");
+		}
+
+
+		void PrivateMessage(int entID, string msg)
+		{
+			string	cmd	="say p:" + entID + " '" + msg + "'";
+            mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new Eleon.Modding.PString(cmd));
+		}
+
+
+		private void ChatMessage(String msg)
         {
             String command = "SAY '" + msg + "'";
-            mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, (ushort)CmdId.Request_InGameMessage_AllPlayers, new Eleon.Modding.PString(command));
+            mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new Eleon.Modding.PString(command));
         }
+
+		private void TyadaChat(string msg)
+		{
+			string	cmd	="SAY f:Tyada '" + msg + "'";
+            mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new Eleon.Modding.PString(cmd));
+		}
+
+		private void CastaeChat(string msg)
+		{
+			string	cmd	="SAY f:Castae '" + msg + "'";
+            mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new Eleon.Modding.PString(cmd));
+		}
 
         private void NormalMessage(String msg)
         {
-            mGameAPI.Game_Request(CmdId.Request_InGameMessage_AllPlayers, (ushort)CmdId.Request_InGameMessage_AllPlayers, new IdMsgPrio(0, msg, 0, 100));
+            mGameAPI.Game_Request(CmdId.Request_InGameMessage_AllPlayers, 0, new IdMsgPrio(0, msg, 0, 100));
         }
 
         private void AlertMessage(String msg)
         {
-            mGameAPI.Game_Request(CmdId.Request_InGameMessage_AllPlayers, (ushort)CmdId.Request_InGameMessage_AllPlayers, new IdMsgPrio(0, msg, 1, 100));
+            mGameAPI.Game_Request(CmdId.Request_InGameMessage_AllPlayers, 0, new IdMsgPrio(0, msg, 1, 100));
         }
 
         private void AttentionMessage(String msg)
@@ -170,6 +298,19 @@ namespace ClanWarsModule
 						{
 							return;
 						}
+						
+						if(!mPlayerEntIDToClientID.ContainsKey(iei.id))
+						{
+							mGameAPI.Console_Write("Player " + iei.id + " got itemExchange event but has no clientID recorded!");
+							return;
+						}
+
+						int	cid	=mPlayerEntIDToClientID[iei.id];
+						if(!mPlayerCIDToSteamID.ContainsKey(cid))
+						{
+							mGameAPI.Console_Write("Player " + cid + " got itemExchange event but has no steamID recorded!");
+							return;
+						}
 
 						if(!mPlayersSacrificing.Contains(iei.id))
 						{
@@ -177,13 +318,23 @@ namespace ClanWarsModule
 						}
 						else
 						{
-							mStyx.SacrificeItems(iei.id, iei.items);
+							mStyx.SacrificeItems(mPlayerCIDToSteamID[cid], iei.items);
 							mPlayersSacrificing.Remove(iei.id);
 
 							//for debugging prices and such
 							foreach(ItemStack st in iei.items)
 							{
 								mGameAPI.Console_Write("Item: " + st.id + ", " + st.count);
+							}
+
+							//set the timestamp
+							if(mPlayerSacTimes.ContainsKey(iei.id))
+							{
+								mPlayerSacTimes[iei.id]	=DateTime.Now;
+							}
+							else
+							{
+								mPlayerSacTimes.Add(iei.id, DateTime.Now);
 							}
 						}
 						break;
@@ -289,6 +440,10 @@ namespace ClanWarsModule
 									AttentionMessage(pi.playerName + " has returned to Clan Castae!");
 									mCastaeDiscos.Remove(pi);
 									mClanCastae.Add(pi);
+									mPlayerCIDToSteamID.Add(pi.clientId, pi.steamId);
+									mPlayerSteamIDToClientID.Add(pi.steamId, pi.clientId);
+									mPlayerEntIDToClientID.Add(pi.entityId, pi.clientId);
+									mPlayerSteamIDToEntID.Add(pi.steamId, pi.entityId);
 								}
 								else if(bInTyadaDiscos(pi))
 								{
@@ -296,6 +451,10 @@ namespace ClanWarsModule
 									AttentionMessage(pi.playerName + " has returned to Clan Tyada!");
 									mTyadaDiscos.Remove(pi);
 									mClanTyada.Add(pi);
+									mPlayerCIDToSteamID.Add(pi.clientId, pi.steamId);
+									mPlayerSteamIDToClientID.Add(pi.steamId, pi.clientId);
+									mPlayerEntIDToClientID.Add(pi.entityId, pi.clientId);
+									mPlayerSteamIDToEntID.Add(pi.steamId, pi.entityId);
 								}
 								else
 								{
@@ -315,6 +474,10 @@ namespace ClanWarsModule
 									mGameAPI.Console_Write("Player " + pi.playerName + " joins Castae...");
 									AttentionMessage(pi.playerName + " has joined Clan Castae!");
 									mClanCastae.Add(pi);
+									mPlayerCIDToSteamID.Add(pi.clientId, pi.steamId);
+									mPlayerSteamIDToClientID.Add(pi.steamId, pi.clientId);
+									mPlayerEntIDToClientID.Add(pi.entityId, pi.clientId);
+									mPlayerSteamIDToEntID.Add(pi.steamId, pi.entityId);
 
 									//track player current playfield
 									mPlayerCurPlayFields.Add(pi.entityId, pi.playfield);
@@ -340,6 +503,10 @@ namespace ClanWarsModule
 									mGameAPI.Console_Write("Player " + pi.playerName + " joins Tyada...");
 									AttentionMessage(pi.playerName + " has joined Clan Tyada!");
 									mClanTyada.Add(pi);
+									mPlayerCIDToSteamID.Add(pi.clientId, pi.steamId);
+									mPlayerSteamIDToClientID.Add(pi.steamId, pi.clientId);
+									mPlayerEntIDToClientID.Add(pi.entityId, pi.clientId);
+									mPlayerSteamIDToEntID.Add(pi.steamId, pi.entityId);
 
 									//track player current playfield / position
 									mPlayerCurPlayFields.Add(pi.entityId, pi.playfield);
@@ -412,6 +579,11 @@ namespace ClanWarsModule
 								mCastaeDiscos.Add(casResult);
 								AttentionMessage(casResult.playerName + " has left the match from Clan Castae!  They can rejoin before the match ends.");
 								mGameAPI.Console_Write("Player " + casResult.playerName + " disco castae...");
+
+								mPlayerCIDToSteamID.Remove(casResult.clientId);
+								mPlayerSteamIDToClientID.Remove(casResult.steamId);
+								mPlayerEntIDToClientID.Remove(casResult.entityId);
+								mPlayerSteamIDToEntID.Remove(casResult.steamId);
 							}
 
 							PlayerInfo	tyResult	=mClanTyada.FirstOrDefault(e => e.entityId == pid.id);
@@ -421,6 +593,11 @@ namespace ClanWarsModule
 								mTyadaDiscos.Add(tyResult);
 								AttentionMessage(tyResult.playerName + " has left the match from Clan Tyada!  They can rejoin before the match ends.");
 								mGameAPI.Console_Write("Player " + tyResult.playerName + " disco tyada...");
+
+								mPlayerCIDToSteamID.Remove(tyResult.clientId);
+								mPlayerSteamIDToClientID.Remove(tyResult.steamId);
+								mPlayerEntIDToClientID.Remove(tyResult.entityId);
+								mPlayerSteamIDToEntID.Remove(tyResult.steamId);
 							}
 						}
                         break;
@@ -652,6 +829,8 @@ namespace ClanWarsModule
 		{
 			AttentionMessage(pi.playerName + " will be reassembled by the Queen at a cost of " + pi.exp + "...");
 
+			mStyx.DeductResCost(pi.steamId, pi.exp);
+
 			List<PVector3>	starts	=(homePlayField == "Castae")? mStartPositionsCastae : mStartPositionsTyada;
 
 			//if player is within a meter of the start locations, they probably
@@ -762,6 +941,24 @@ namespace ClanWarsModule
 		}
 
 
+		//return true if it's ok to ask for more goodies
+		bool	CheckStyxSpamInterval(int playerEntID)
+		{
+			if(!mPlayerSacTimes.ContainsKey(playerEntID))
+			{
+				mGameAPI.Console_Write("No sac time recorded for player");
+				return	true;
+			}
+			TimeSpan	since	=DateTime.Now - mPlayerSacTimes[playerEntID];
+			mGameAPI.Console_Write("Player last sacrificed : " + since.ToString());
+			if(since.TotalSeconds < mConstants["StyxAskForMoreInterval"])
+			{
+				return	false;
+			}
+			return	true;
+		}
+
+
 		void CheckStyx(int entID)
 		{
 			if(mPlayerCurPlayFields.ContainsKey(entID))
@@ -770,10 +967,18 @@ namespace ClanWarsModule
 				{
 					if(mStyx.bCheckNear(mPlayerPosNRots[entID].pos, true))
 					{
+						mGameAPI.Console_Write("Player within range of Styx");
 						if(!mPlayersSacrificing.Contains(entID))
 						{
-							mPlayersSacrificing.Add(entID);
-							SacrificeItems(entID);
+							mGameAPI.Console_Write("Player not already sacrificing");
+
+							//make sure styx doesn't greedily spam
+							if(CheckStyxSpamInterval(entID))
+							{
+								mGameAPI.Console_Write("Player ready to fork over goodies");
+								mPlayersSacrificing.Add(entID);
+								SacrificeItems(entID);
+							}
 						}
 					}
 				}
@@ -783,8 +988,12 @@ namespace ClanWarsModule
 					{
 						if(!mPlayersSacrificing.Contains(entID))
 						{
-							mPlayersSacrificing.Add(entID);
-							SacrificeItems(entID);
+							//make sure styx doesn't greedily spam
+							if(CheckStyxSpamInterval(entID))
+							{
+								mPlayersSacrificing.Add(entID);
+								SacrificeItems(entID);
+							}
 						}
 					}
 				}
