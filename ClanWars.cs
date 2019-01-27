@@ -103,7 +103,7 @@ namespace ClanWarsModule
             mGameAPI	=dediAPI;
 
 			mRand	=new Random();
-			mStyx	=new AIQueen(NearQueenDistance, dediAPI);
+			mStyx	=new AIQueen(NearQueenDistance);
 
 			//wire events
 			mStyx.eReturnItems			+=OnStyxReturnItems;
@@ -111,6 +111,7 @@ namespace ClanWarsModule
 			mStyx.eSpeakToPlayer		+=OnStyxSpeakToPlayer;
 			mStyx.eSpeakToPlayerClan	+=OnStyxSpeakToPlayerClan;
 			mStyx.eGameEnd				+=OnStyxGameEnd;
+			mStyx.eDebugSpew			+=OnDebugSpew;
 
 			mConstants	=new Dictionary<string, int>();
 
@@ -155,116 +156,6 @@ namespace ClanWarsModule
 
             mGameAPI.Console_Write("Clan vs Clan action!");
         }
-
-
-		void OnStyxGameEnd(Object sender, EventArgs ea)
-		{
-			string	cmd	="saveandexit 1";
-
-			mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new Eleon.Modding.PString(cmd));
-		}
-
-
-		void OnStyxReturnItems(Object sender, EventArgs ea)
-		{
-			ItemReturnEventArgs	irea	=ea as ItemReturnEventArgs;
-			if(irea == null || irea.mItems == null)
-			{
-				mGameAPI.Console_Write("Null item stack in OnStyxReturnItems!");
-				return;
-			}
-
-			if(!mPlayerSteamIDToEntID.ContainsKey(irea.mPlayerSteamID))
-			{
-				mGameAPI.Console_Write("No steam id to entity id conversion for steam id " + irea.mPlayerSteamID + " in OnStyxReturnItems!");
-				return;
-			}
-
-			int	eid	=mPlayerSteamIDToEntID[irea.mPlayerSteamID];
-
-			foreach(ItemStack ist in irea.mItems)
-			{
-				mGameAPI.Game_Request(CmdId.Request_Player_AddItem, 0, new IdItemStack(eid, ist));
-			}
-		}
-
-
-		void OnStyxSpeakToAll(Object sender, EventArgs ea)
-		{
-			SpeakEventArgs	sea	=ea as SpeakEventArgs;
-			if(sea == null)
-			{
-				mGameAPI.Console_Write("Null SpeakEventArgs in OnStyxSpeakToAll!");
-				return;
-			}
-
-			if(sea.mbAlertMsg)
-			{
-				AlertMessage(sea.mMsg);
-			}
-			else
-			{
-				ChatMessage(sea.mMsg);
-			}
-		}
-
-
-		void OnStyxSpeakToPlayer(Object sender, EventArgs ea)
-		{
-			SpeakEventArgs	sea	=ea as SpeakEventArgs;
-			if(sea == null)
-			{
-				mGameAPI.Console_Write("Null SpeakEventArgs in OnStyxSpeakToPlayer!");
-				return;
-			}
-
-			if(!mPlayerSteamIDToEntID.ContainsKey(sea.mPlayerSteamID))
-			{
-				mGameAPI.Console_Write("No steam id to entity id conversion for steam id " + sea.mPlayerSteamID + " in OnStyxReturnItems!");
-				return;
-			}
-
-			int	eid	=mPlayerSteamIDToEntID[sea.mPlayerSteamID];
-
-			mGameAPI.Console_Write("Styx speaking to player: " + sea.mPlayerSteamID + " message: " + sea.mMsg);
-
-			PrivateMessage(eid, sea.mMsg);
-		}
-
-
-		void OnStyxSpeakToPlayerClan(Object sender, EventArgs ea)
-		{
-			SpeakEventArgs	sea	=ea as SpeakEventArgs;
-			if(sea == null)
-			{
-				mGameAPI.Console_Write("Null SpeakEventArgs in OnStyxSpeakToPlayer!");
-				return;
-			}
-
-			if(!mPlayerSteamIDToClientID.ContainsKey(sea.mPlayerSteamID))
-			{
-				mGameAPI.Console_Write("No steam id to client id conversion for steam id " + sea.mPlayerSteamID + " in OnStyxReturnItems!");
-				return;
-			}
-
-			int	cid	=mPlayerSteamIDToClientID[sea.mPlayerSteamID];
-
-			PlayerInfo	casResult	=mClanCastae.FirstOrDefault(e => e.clientId == cid);
-			if(casResult != null)
-			{
-				CastaeChat(sea.mMsg);
-				return;
-			}
-
-			PlayerInfo	tyResult	=mClanTyada.FirstOrDefault(e => e.clientId == cid);
-			if(tyResult != null)
-			{
-				TyadaChat(sea.mMsg);
-				return;
-			}
-
-			mGameAPI.Console_Write("Styx trying to speak to a player's clan when the player is not in one of the clans!");
-		}
 
 
 		void PrivateMessage(int entID, string msg)
@@ -825,7 +716,7 @@ namespace ClanWarsModule
 		}
 
 
-		void Resurrect(int entID, string curPlayField, PVector3 curPos)
+		void Resurrect(int entID, int playerExp, string curPlayField, PVector3 curPos)
 		{
 			PlayerInfo	casResult	=mClanCastae.FirstOrDefault(e => e.entityId == entID);
 			PlayerInfo	tyResult	=mClanTyada.FirstOrDefault(e => e.entityId == entID);
@@ -837,10 +728,12 @@ namespace ClanWarsModule
 
 			if(casResult != null)
 			{
+				casResult.exp	=playerExp;	//update exp value
 				Resurrect(casResult, "Castae", curPlayField, curPos);
 			}
 			else
 			{
+				tyResult.exp	=playerExp;	//update exp value
 				Resurrect(tyResult, "Tyada", curPlayField, curPos);
 			}
 		}
@@ -848,7 +741,7 @@ namespace ClanWarsModule
 
 		void Resurrect(PlayerInfo pi, string homePlayField, string curPlayField, PVector3 curPos)
 		{
-			AttentionMessage(pi.playerName + " will be reassembled by the Queen at a cost of " + pi.exp + "...");
+			PrivateMessage(pi.entityId, "You have been reassembled by the Queen at a cost of " + pi.exp + "...");
 
 			mStyx.DeductResCost(pi.steamId, pi.exp);
 
@@ -1034,7 +927,7 @@ namespace ClanWarsModule
 			Deadites	deader	=mDeadPlayers.FirstOrDefault(e => e.mEntID == pi.entityId);
 
 			//printing stuff trying to find some sort of "player just spawned" indicator
-			mGameAPI.Console_Write("Dead Tracking: " + pi.health + ", " +
+			mGameAPI.Console_Write("Dead Tracking: " + pi.health + ", exp:" + pi.exp + ", " +
 				VecStuff.ToString(pi.pos) + ", " + VecStuff.ToString(deader.mPos));
 
 			if(deader.mPos.x == 0f && deader.mPos.y == 0f && deader.mPos.z == 0f)
@@ -1085,7 +978,7 @@ namespace ClanWarsModule
 
 				//player has respawned (we hope)
 				//teleport them to rally and deduct score
-				Resurrect(pi.entityId, pi.playfield, pi.pos);
+				Resurrect(pi.entityId, pi.exp, pi.playfield, pi.pos);
 			}
 			else
 			{
@@ -1135,7 +1028,7 @@ namespace ClanWarsModule
 			AlertMessage("Fight for the glory of Queen Styx!");
 
 			UnlockDoors();
-			mStyx.StartMatch(mConstants["MatchDurationMinutes"]);
+			mStyx.StartMatch(mConstants["MatchDurationMinutes"], mClanTyada, mClanCastae);
 
 			mCountDownTimer.Stop();
 		}
@@ -1278,5 +1171,128 @@ namespace ClanWarsModule
 				mGameAPI.Console_Write("Const: " + vals.Key + ", " + vals.Value);
 			}
 		}
-   }
+
+
+		#region Event Handlers
+		void OnDebugSpew(object sender, EventArgs ea)
+		{
+			string	spew	=sender as string;
+			if(spew == null)
+			{
+				return;
+			}
+            mGameAPI.Console_Write(spew);
+		}
+
+
+		void OnStyxGameEnd(Object sender, EventArgs ea)
+		{
+			string	cmd	="saveandexit 1";
+
+			mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new Eleon.Modding.PString(cmd));
+		}
+
+
+		void OnStyxReturnItems(Object sender, EventArgs ea)
+		{
+			ItemReturnEventArgs	irea	=ea as ItemReturnEventArgs;
+			if(irea == null || irea.mItems == null)
+			{
+				mGameAPI.Console_Write("Null item stack in OnStyxReturnItems!");
+				return;
+			}
+
+			if(!mPlayerSteamIDToEntID.ContainsKey(irea.mPlayerSteamID))
+			{
+				mGameAPI.Console_Write("No steam id to entity id conversion for steam id " + irea.mPlayerSteamID + " in OnStyxReturnItems!");
+				return;
+			}
+
+			int	eid	=mPlayerSteamIDToEntID[irea.mPlayerSteamID];
+
+			foreach(ItemStack ist in irea.mItems)
+			{
+				mGameAPI.Game_Request(CmdId.Request_Player_AddItem, 0, new IdItemStack(eid, ist));
+			}
+		}
+
+
+		void OnStyxSpeakToAll(Object sender, EventArgs ea)
+		{
+			SpeakEventArgs	sea	=ea as SpeakEventArgs;
+			if(sea == null)
+			{
+				mGameAPI.Console_Write("Null SpeakEventArgs in OnStyxSpeakToAll!");
+				return;
+			}
+
+			if(sea.mbAlertMsg)
+			{
+				AlertMessage(sea.mMsg);
+			}
+			else
+			{
+				ChatMessage(sea.mMsg);
+			}
+		}
+
+
+		void OnStyxSpeakToPlayer(Object sender, EventArgs ea)
+		{
+			SpeakEventArgs	sea	=ea as SpeakEventArgs;
+			if(sea == null)
+			{
+				mGameAPI.Console_Write("Null SpeakEventArgs in OnStyxSpeakToPlayer!");
+				return;
+			}
+
+			if(!mPlayerSteamIDToEntID.ContainsKey(sea.mPlayerSteamID))
+			{
+				mGameAPI.Console_Write("No steam id to entity id conversion for steam id " + sea.mPlayerSteamID + " in OnStyxReturnItems!");
+				return;
+			}
+
+			int	eid	=mPlayerSteamIDToEntID[sea.mPlayerSteamID];
+
+			mGameAPI.Console_Write("Styx speaking to player: " + sea.mPlayerSteamID + " message: " + sea.mMsg);
+
+			PrivateMessage(eid, sea.mMsg);
+		}
+
+
+		void OnStyxSpeakToPlayerClan(Object sender, EventArgs ea)
+		{
+			SpeakEventArgs	sea	=ea as SpeakEventArgs;
+			if(sea == null)
+			{
+				mGameAPI.Console_Write("Null SpeakEventArgs in OnStyxSpeakToPlayer!");
+				return;
+			}
+
+			if(!mPlayerSteamIDToClientID.ContainsKey(sea.mPlayerSteamID))
+			{
+				mGameAPI.Console_Write("No steam id to client id conversion for steam id " + sea.mPlayerSteamID + " in OnStyxReturnItems!");
+				return;
+			}
+
+			int	cid	=mPlayerSteamIDToClientID[sea.mPlayerSteamID];
+
+			PlayerInfo	casResult	=mClanCastae.FirstOrDefault(e => e.clientId == cid);
+			if(casResult != null)
+			{
+				CastaeChat(sea.mMsg);
+				return;
+			}
+
+			PlayerInfo	tyResult	=mClanTyada.FirstOrDefault(e => e.clientId == cid);
+			if(tyResult != null)
+			{
+				TyadaChat(sea.mMsg);
+				return;
+			}
+
+			mGameAPI.Console_Write("Styx trying to speak to a player's clan when the player is not in one of the clans!");
+		}
+		#endregion
+	}
 }

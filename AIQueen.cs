@@ -43,19 +43,29 @@ namespace ClanWarsModule
 		internal event EventHandler	eSpeakToAll;
 		internal event EventHandler	eReturnItems;
 		internal event EventHandler	eGameEnd;
+		internal event EventHandler	eDebugSpew;
 
 
-		internal AIQueen(float nearDist, ModGameAPI mgapi)
+		internal AIQueen(float nearDist)
 		{
 			mNearDistance	=nearDist;
 
-			LoadPointValues(mgapi);
+			LoadPointValues();
 		}
 
 
-		internal void StartMatch(int matchDuration)
+		internal void StartMatch(int matchDuration, List<PlayerInfo> tyClan, List<PlayerInfo> caClan)
 		{
 			Debug.Assert(matchDuration > 1);
+
+			foreach(PlayerInfo pi in tyClan)
+			{
+				mTyadaMembers.Add(pi.steamId);
+			}
+			foreach(PlayerInfo pi in caClan)
+			{
+				mCastaeMembers.Add(pi.steamId);
+			}
 
 			long	matchDurSec		=matchDuration * 60;
 			long	quarterTimeSec	=(matchDurSec) / 4;
@@ -96,6 +106,14 @@ namespace ClanWarsModule
 
 		internal void DeductResCost(string steamID, int cost)
 		{
+			if(mIndividualScores.ContainsKey(steamID))
+			{
+				mIndividualScores[steamID]	-=cost;
+			}
+			else
+			{
+				mIndividualScores.Add(steamID, -cost);
+			}
 		}
 
 
@@ -174,7 +192,7 @@ namespace ClanWarsModule
 			ReturnItems(steamID, mUseless);
 
 			//msg to clan?
-			//mgapi.Console_Write("Styx awarding " + totalValue + " points to player " + steamID);
+			eDebugSpew?.Invoke("Styx awarding " + totalValue + " points to player " + steamID, null);
 		}
 
 
@@ -247,7 +265,7 @@ namespace ClanWarsModule
 		}
 
 
-		void LoadPointValues(ModGameAPI mgapi)
+		void LoadPointValues()
 		{
 			//can't be too sure of what the current directory is
 			Assembly	ass	=Assembly.GetExecutingAssembly();
@@ -256,7 +274,7 @@ namespace ClanWarsModule
 
 			string	filePath	=Path.Combine(dllDir, "ItemPointValues.txt");
 
-			mgapi.Console_Write("Loading Config file for the queen's point values: " + filePath);
+			eDebugSpew?.Invoke("Loading Config file for the queen's point values: " + filePath, null);
 
 			FileStream	fs	=new FileStream(filePath, FileMode.Open, FileAccess.Read);
 			if(fs == null)
@@ -276,12 +294,12 @@ namespace ClanWarsModule
 
 				string	[]toks	=line.Split(' ', '\t');
 
-//				mgapi.Console_Write("Got " + toks.Length + " tokenses for line " + line);
+//				eDebugSpew?.Invoke("Got " + toks.Length + " tokenses for line " + line, null);
 
 				if(toks.Length < 3)
 				{
 					//bad line
-					mgapi.Console_Write("Bad line in point config file at position: " + sr.BaseStream.Position);
+					eDebugSpew?.Invoke("Bad line in point config file at position: " + sr.BaseStream.Position, null);
 					continue;
 				}
 
@@ -306,7 +324,7 @@ namespace ClanWarsModule
 
 				if(!int.TryParse(toks[idx], out good.mID))
 				{
-					mgapi.Console_Write("Bad token looking for item id in point config file at position: " + sr.BaseStream.Position);
+					eDebugSpew?.Invoke("Bad token looking for item id in point config file at position: " + sr.BaseStream.Position, null);
 					continue;
 				}
 
@@ -325,7 +343,7 @@ namespace ClanWarsModule
 				//this one should be in quotes
 				if(toks[idx][0] != '\"')
 				{
-					mgapi.Console_Write("Expecting \" looking for item name, got " + toks[idx] + " in point config file at position: " + sr.BaseStream.Position);
+					eDebugSpew?.Invoke("Expecting \" looking for item name, got " + toks[idx] + " in point config file at position: " + sr.BaseStream.Position, null);
 					continue;
 				}
 
@@ -370,7 +388,7 @@ namespace ClanWarsModule
 
 				if(!int.TryParse(toks[idx], out good.mValue))
 				{
-					mgapi.Console_Write("Bad token looking for value in point config file at position: " + sr.BaseStream.Position);
+					eDebugSpew?.Invoke("Bad token looking for value in point config file at position: " + sr.BaseStream.Position, null);
 					continue;
 				}
 
@@ -380,13 +398,15 @@ namespace ClanWarsModule
 			sr.Close();
 			fs.Close();
 
-			foreach(KeyValuePair<int, Goody> goods in mWantedItemsValue)
-			{
-				mgapi.Console_Write("Goody: " + goods.Value.mID + ", " + goods.Value.mName + ", " + goods.Value.mValue);
-			}
+			//print goodies desired if there's a problem
+//			foreach(KeyValuePair<int, Goody> goods in mWantedItemsValue)
+//			{
+//				eDebugSpew?.Invoke("Goody: " + goods.Value.mID + ", " + goods.Value.mName + ", " + goods.Value.mValue);
+//			}
 		}
 
 
+		#region Event Handlers
 		void OnGameOver(Object sender, ElapsedEventArgs e)
 		{
 			long	tyadaScore	=CalcScore(true);
@@ -489,5 +509,6 @@ namespace ClanWarsModule
 
 			SpeakToAll(update, false);
 		}
+		#endregion
 	}
 }
