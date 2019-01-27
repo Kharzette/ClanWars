@@ -1,6 +1,8 @@
 ﻿using System;
 using System.IO;
+using System.Timers;
 using System.Reflection;
+using System.Diagnostics;
 using System.Collections.Generic;
 using Eleon.Modding;
 
@@ -19,14 +21,28 @@ namespace ClanWarsModule
 		Dictionary<int, Goody>	mWantedItemsValue	=new Dictionary<int, Goody>();
 		Dictionary<string, int>	mIndividualScores	=new Dictionary<string, int>();
 
+		//clan membership
+		List<string>	mTyadaMembers	=new List<string>();
+		List<string>	mCastaeMembers	=new List<string>();
+
+		//my position on the starter worlds
 		PVector3	mTyadaPos, mCastaePos;
 
-		float		mNearDistance;	//how far away to contribute ingotses?
+		//how far away to contribute goodies?
+		float		mNearDistance;
+
+		//timers
+		Timer	mQuarter;
+		Timer	mFinalMinute;
+		Timer	mFinalSeconds;
+		Timer	mGameOver;
+		int		mQuartersElapsed;
 
 		internal event EventHandler	eSpeakToPlayer;
 		internal event EventHandler	eSpeakToPlayerClan;
 		internal event EventHandler	eSpeakToAll;
 		internal event EventHandler	eReturnItems;
+		internal event EventHandler	eGameEnd;
 
 
 		internal AIQueen(float nearDist, ModGameAPI mgapi)
@@ -34,6 +50,35 @@ namespace ClanWarsModule
 			mNearDistance	=nearDist;
 
 			LoadPointValues(mgapi);
+		}
+
+
+		internal void StartMatch(int matchDuration)
+		{
+			Debug.Assert(matchDuration > 1);
+
+			long	matchDurSec		=matchDuration * 60;
+			long	quarterTimeSec	=(matchDurSec) / 4;
+			long	finalMin		=matchDurSec - 60;
+			long	lastTen			=matchDurSec - 10;
+
+			mQuarter		=new Timer(quarterTimeSec * 1000);
+			mFinalMinute	=new Timer(finalMin * 1000);
+			mFinalSeconds	=new Timer(lastTen * 1000);
+			mGameOver		=new Timer(matchDurSec * 1000);
+
+			mQuarter.AutoReset	=true;
+
+			mQuarter.Start();
+			mFinalMinute.Start();
+			mFinalSeconds.Start();
+			mGameOver.Start();
+
+			//wire elapsed events
+			mQuarter.Elapsed		+=OnQuarter;
+			mFinalMinute.Elapsed	+=OnFinalMinute;
+			mFinalSeconds.Elapsed	+=OnFinalSeconds;
+			mGameOver.Elapsed		+=OnGameOver;
 		}
 
 
@@ -46,6 +91,11 @@ namespace ClanWarsModule
 		internal void SetCastaeTemplePos(PVector3 casPos)
 		{
 			mCastaePos	=casPos;
+		}
+
+
+		internal void DeductResCost(string steamID, int cost)
+		{
 		}
 
 
@@ -128,6 +178,31 @@ namespace ClanWarsModule
 		}
 
 
+		long	CalcScore(bool bTyada)
+		{
+			long	ret	=0;
+
+			foreach(KeyValuePair<string, int> sc in mIndividualScores)
+			{
+				if(bTyada)
+				{
+					if(mTyadaMembers.Contains(sc.Key))
+					{
+						ret	+=sc.Value;
+					}
+				}
+				else
+				{
+					if(mCastaeMembers.Contains(sc.Key))
+					{
+						ret	+=sc.Value;
+					}
+				}
+			}
+			return	ret;
+		}
+
+
 		void ReturnItems(string steamID, List<ItemStack> items)
 		{
 			ItemReturnEventArgs	irea	=new ItemReturnEventArgs();
@@ -161,9 +236,14 @@ namespace ClanWarsModule
 		}
 
 
-		void SpeakToAll(string msg)
+		void SpeakToAll(string msg, bool bAlert)
 		{
-			eSpeakToAll?.Invoke(msg, null);
+			SpeakEventArgs	sea	=new SpeakEventArgs();
+
+			sea.mMsg		=msg;
+			sea.mbAlertMsg	=bAlert;
+
+			eSpeakToAll?.Invoke(null, sea);
 		}
 
 
@@ -307,8 +387,107 @@ namespace ClanWarsModule
 		}
 
 
-		internal void DeductResCost(string steamID, int cost)
+		void OnGameOver(Object sender, ElapsedEventArgs e)
 		{
+			long	tyadaScore	=CalcScore(true);
+			long	castScore	=CalcScore(false);
+
+			if(tyadaScore == castScore)
+			{
+				SpeakToAll("The game ends with a tie!  What a wonderful match.  My people were very entertained!", true);
+			}
+			else if(tyadaScore > castScore)
+			{
+				SpeakToAll("Tyada is victorious!  Their glory shall live on for eternity in our memory cells!", true);
+			}
+			else
+			{
+				SpeakToAll("Castae is victorious!  Their glory shall live on for eternity in our memory cells!", true);
+			}
+			eGameEnd?.Invoke(null, null);
+		}
+
+
+		void OnFinalSeconds(Object sender, ElapsedEventArgs e)
+		{
+			SpeakToAll("Ten seconds!", false);
+		}
+
+
+		void OnFinalMinute(Object sender, ElapsedEventArgs e)
+		{
+			long	tyadaScore	=CalcScore(true);
+			long	castScore	=CalcScore(false);
+
+			string	update	="";
+
+
+			if(tyadaScore == castScore)
+			{
+				update	+="The score is tied ";
+			}
+			else if(tyadaScore > castScore)
+			{
+				update	+="Tyada is in the lead ";
+			}
+			else
+			{
+				update	+="Castae is in the lead ";
+			}
+
+			update	+="with ONE MINUTE remaining!";
+
+			SpeakToAll(update, true);
+		}
+
+
+		void OnQuarter(Object sender, ElapsedEventArgs e)
+		{
+			mQuartersElapsed++;
+
+			if(mQuartersElapsed > 3)
+			{
+				//game over!
+				return;
+			}
+
+			long	QuarterIntervalMS	=(long)mQuarter.Interval;
+			long	QuarterIntervalSec	=QuarterIntervalMS / 1000;
+
+			long	timeElapsedSec		=QuarterIntervalSec * mQuartersElapsed;
+			long	timeRemainingSec	=(QuarterIntervalSec * 4) - timeElapsedSec;
+			long	timeRemainingMin	=timeRemainingSec / 60;
+			long	timeRemainderSec	=timeRemainingSec % 60;
+
+			long	tyadaScore	=CalcScore(true);
+			long	castScore	=CalcScore(false);
+
+			string	update	="";
+
+
+			if(tyadaScore == castScore)
+			{
+				update	+="The score is tied ";
+			}
+			else if(tyadaScore > castScore)
+			{
+				update	+="Tyada is in the lead ";
+			}
+			else
+			{
+				update	+="Castae is in the lead ";
+			}
+
+			if(mQuartersElapsed != 2)
+			{
+				update	+="with " + timeRemainingMin + " minutes and " + timeRemainderSec + " seconds remaining.";
+			}
+			else if(mQuartersElapsed == 2)
+			{
+				update	+=" at half time remaining.";
+			}
+
+			SpeakToAll(update, false);
 		}
 	}
 }

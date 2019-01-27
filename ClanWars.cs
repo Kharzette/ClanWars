@@ -110,6 +110,7 @@ namespace ClanWarsModule
 			mStyx.eSpeakToAll			+=OnStyxSpeakToAll;
 			mStyx.eSpeakToPlayer		+=OnStyxSpeakToPlayer;
 			mStyx.eSpeakToPlayerClan	+=OnStyxSpeakToPlayerClan;
+			mStyx.eGameEnd				+=OnStyxGameEnd;
 
 			mConstants	=new Dictionary<string, int>();
 
@@ -156,6 +157,14 @@ namespace ClanWarsModule
         }
 
 
+		void OnStyxGameEnd(Object sender, EventArgs ea)
+		{
+			string	cmd	="saveandexit 1";
+
+			mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new Eleon.Modding.PString(cmd));
+		}
+
+
 		void OnStyxReturnItems(Object sender, EventArgs ea)
 		{
 			ItemReturnEventArgs	irea	=ea as ItemReturnEventArgs;
@@ -182,9 +191,21 @@ namespace ClanWarsModule
 
 		void OnStyxSpeakToAll(Object sender, EventArgs ea)
 		{
-			string	msg	=sender as string;
+			SpeakEventArgs	sea	=ea as SpeakEventArgs;
+			if(sea == null)
+			{
+				mGameAPI.Console_Write("Null SpeakEventArgs in OnStyxSpeakToAll!");
+				return;
+			}
 
-			NormalMessage(msg);
+			if(sea.mbAlertMsg)
+			{
+				AlertMessage(sea.mMsg);
+			}
+			else
+			{
+				ChatMessage(sea.mMsg);
+			}
 		}
 
 
@@ -1114,6 +1135,7 @@ namespace ClanWarsModule
 			AlertMessage("Fight for the glory of Queen Styx!");
 
 			UnlockDoors();
+			mStyx.StartMatch(mConstants["MatchDurationMinutes"]);
 
 			mCountDownTimer.Stop();
 		}

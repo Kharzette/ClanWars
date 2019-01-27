@@ -8,7 +8,8 @@ namespace ClanWarsModule
 	internal class SpeakEventArgs : EventArgs
 	{
 		internal string	mPlayerSteamID;
-		internal string	mMsg;			
+		internal string	mMsg;
+		internal bool	mbAlertMsg;
 	}
 
 
