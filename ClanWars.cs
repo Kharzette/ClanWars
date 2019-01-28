@@ -24,7 +24,8 @@ namespace ClanWarsModule
 		AIQueen	mStyx;
 
 		//constants from a config file
-		Dictionary<string, int>	mConstants;
+		Dictionary<string, int>			mIConstants;
+		Dictionary<string, PVector3>	mVConstants;
 
 		//start pad position stuff
 		bool			mbStartsRecordedTyada, mbStartsRecordedCastae;
@@ -38,9 +39,6 @@ namespace ClanWarsModule
 
 		//playfield ids for the homeworlds
 		int	mTyadaPFID, mCastaePFID;
-
-		//offsets to the spawn pads in structure coordinates
-		List<PVector3>	mPadOffsets;
 
 		//players in the match
         List<PlayerInfo>	mClanCastae;
@@ -113,7 +111,8 @@ namespace ClanWarsModule
 			mStyx.eGameEnd				+=OnStyxGameEnd;
 			mStyx.eDebugSpew			+=OnDebugSpew;
 
-			mConstants	=new Dictionary<string, int>();
+			mIConstants	=new Dictionary<string, int>();
+			mVConstants	=new Dictionary<string, PVector3>();
 
 			mClanCastae	=new List<PlayerInfo>();
 			mClanTyada	=new List<PlayerInfo>();
@@ -139,15 +138,6 @@ namespace ClanWarsModule
 			mGameDataTimer.Elapsed	+=OnGameDataTimer;
 			mGameDataTimer.AutoReset	=true;
 			mGameDataTimer.Start();
-
-			mPadOffsets	=new List<PVector3>();
-
-			//maybe read this from a config file or something
-			mPadOffsets.Add(new PVector3(-2, 7.5f, -4));
-			mPadOffsets.Add(new PVector3(-2, 7.5f, -2));
-			mPadOffsets.Add(new PVector3(-2, 7.5f, 0));
-			mPadOffsets.Add(new PVector3(-2, 7.5f, 2));
-			mPadOffsets.Add(new PVector3(-2, 7.5f, 4));
 
 			mPlayerPosNRots			=new Dictionary<int, IdPositionRotation>();
 			mPlayerCurPlayFields	=new Dictionary<int, string>();
@@ -257,13 +247,13 @@ namespace ClanWarsModule
 //								mGameAPI.Console_Write("Name: " + gsi.name);
 								if(gsi.name == "Tyada Rally")
 								{
-									MakeTyadaStartPositions(gsi.pos);
+									MakeStartPositions(mStartPositionsTyada, gsi.pos);
 									mbStartsRecordedTyada	=true;
 									mTyadaRallyID			=gsi.id;
 								}
 								else if(gsi.name == "Castae Rally")
 								{
-									MakeCastaeStartPositions(gsi.pos);
+									MakeStartPositions(mStartPositionsCastae, gsi.pos);
 									mbStartsRecordedCastae	=true;
 									mCastaeRallyID			=gsi.id;
 								}
@@ -596,7 +586,7 @@ namespace ClanWarsModule
 			mCountDownTimer.Start();
 
 			//start the timer that gathers info on all player's locations
-			mPosRotTimer			=new Timer(mConstants["PosAndRotUpdateInterval"]);
+			mPosRotTimer			=new Timer(mIConstants["PosAndRotUpdateInterval"]);
 			mPosRotTimer.AutoReset	=true;
 			mPosRotTimer.Elapsed	+=OnPosAndRotTimer;
 			mPosRotTimer.Start();
@@ -772,7 +762,7 @@ namespace ClanWarsModule
 		bool bMatchReadyToStart()
 		{
 			return	true;	//for testing
-			return	(mClanCastae.Count == mConstants["TeamSize"] && mClanTyada.Count == mConstants["TeamSize"]);
+			return	(mClanCastae.Count == mIConstants["TeamSize"] && mClanTyada.Count == mIConstants["TeamSize"]);
 		}
 
 
@@ -822,20 +812,11 @@ namespace ClanWarsModule
 		}
 
 
-		void MakeTyadaStartPositions(PVector3 structurePos)
+		void MakeStartPositions(List<PVector3> sPos, PVector3 structurePos)
 		{
-			foreach(PVector3 ofs in mPadOffsets)
+			for(int i=0;i < 5;i++)
 			{
-				mStartPositionsTyada.Add(VecStuff.Add(ofs, structurePos));
-			}
-		}
-
-
-		void MakeCastaeStartPositions(PVector3 structurePos)
-		{
-			foreach(PVector3 ofs in mPadOffsets)
-			{
-				mStartPositionsCastae.Add(VecStuff.Add(ofs, structurePos));
+				sPos.Add(VecStuff.Add(mVConstants["PadOffset0" + i], structurePos));
 			}
 		}
 
@@ -850,7 +831,7 @@ namespace ClanWarsModule
 			}
 			TimeSpan	since	=DateTime.Now - mPlayerSacTimes[playerEntID];
 //			mGameAPI.Console_Write("Player last sacrificed : " + since.ToString());
-			if(since.TotalSeconds < mConstants["StyxAskForMoreInterval"])
+			if(since.TotalSeconds < mIConstants["StyxAskForMoreInterval"])
 			{
 				return	false;
 			}
@@ -1043,20 +1024,56 @@ namespace ClanWarsModule
 					break;
 				}
 
-				int	val	=0;
-				if(!int.TryParse(toks[idx], out val))
+				//check for vector
+				if(toks[idx].StartsWith("("))
 				{
-					mGameAPI.Console_Write("Bad token looking for item id in constants config file at position: " + sr.BaseStream.Position);
-					continue;
-				}
+					string	sansParen	=toks[idx].Substring(1);
 
-				mConstants.Add(cname, val);
+					float	fval0	=0f;
+					if(!float.TryParse(sansParen, out fval0))
+					{
+						mGameAPI.Console_Write("Bad token:" + sansParen + ", looking for vector value in constants config file at position: " + sr.BaseStream.Position);
+						continue;
+					}
+					idx++;
+
+					float	fval1	=0f;
+					if(!float.TryParse(toks[idx], out fval1))
+					{
+						mGameAPI.Console_Write("Bad token:" + toks[idx] + ", looking for vector value in constants config file at position: " + sr.BaseStream.Position);
+						continue;
+					}
+					idx++;
+
+					sansParen	=toks[idx].Substring(0, toks[idx].Length - 1);
+
+					float	fval2	=0f;
+					if(!float.TryParse(sansParen, out fval2))
+					{
+						mGameAPI.Console_Write("Bad token:" + sansParen + ", looking for vector value in constants config file at position: " + sr.BaseStream.Position);
+						continue;
+					}
+
+					PVector3	vecVal	=new PVector3(fval0, fval1, fval2);
+					mVConstants.Add(cname, vecVal);
+				}
+				else
+				{
+					int	val	=0;
+					if(!int.TryParse(toks[idx], out val))
+					{
+						mGameAPI.Console_Write("Bad token looking for value in constants config file at position: " + sr.BaseStream.Position);
+						continue;
+					}
+
+					mIConstants.Add(cname, val);
+				}
 			}
 
 			sr.Close();
 			fs.Close();
 
-			foreach(KeyValuePair<string, int> vals in mConstants)
+			foreach(KeyValuePair<string, int> vals in mIConstants)
 			{
 				mGameAPI.Console_Write("Const: " + vals.Key + ", " + vals.Value);
 			}
@@ -1153,7 +1170,7 @@ namespace ClanWarsModule
 			AlertMessage("Fight for the glory of Queen Styx!");
 
 			UnlockDoors();
-			mStyx.StartMatch(mConstants["MatchDurationMinutes"], mClanTyada, mClanCastae);
+			mStyx.StartMatch(mIConstants["MatchDurationMinutes"], mClanTyada, mClanCastae);
 
 			mCountDownTimer.Stop();
 		}

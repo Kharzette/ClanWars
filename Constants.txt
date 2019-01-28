@@ -5,3 +5,10 @@ MatchDurationMinutes	10
 PosAndRotUpdateInterval	1000	//get updates on all players position and rotation at this frequency
 
 StyxAskForMoreInterval	10		//time in seconds to ask for more goodies
+
+//offsets to the player start pads in the rally buildings
+PadOffset00		(-2 7.5 -4)
+PadOffset01		(-2 7.5 -2)
+PadOffset02		(-2 7.5 0)
+PadOffset03		(-2 7.5 2)
+PadOffset04		(-2 7.5 4)
