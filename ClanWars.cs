@@ -155,50 +155,7 @@ namespace ClanWarsModule
                 switch (eventId)
                 {
 					case CmdId.Event_Player_ItemExchange:
-						ItemExchangeInfo	iei	=data as ItemExchangeInfo;
-						if(iei == null)
-						{
-							return;
-						}
-						
-						if(!mPlayerEntIDToClientID.ContainsKey(iei.id))
-						{
-							mGameAPI.Console_Write("Player " + iei.id + " got itemExchange event but has no clientID recorded!");
-							return;
-						}
-
-						int	cid	=mPlayerEntIDToClientID[iei.id];
-						if(!mPlayerCIDToSteamID.ContainsKey(cid))
-						{
-							mGameAPI.Console_Write("Player " + cid + " got itemExchange event but has no steamID recorded!");
-							return;
-						}
-
-						if(!mPlayersSacrificing.Contains(iei.id))
-						{
-							mGameAPI.Console_Write("Player " + iei.id + " got itemExchange event but isn't sacrificing... Maybe another mod sent this event.");
-						}
-						else
-						{
-							mStyx.SacrificeItems(mPlayerCIDToSteamID[cid], iei.items);
-							mPlayersSacrificing.Remove(iei.id);
-
-							//for debugging prices and such
-							foreach(ItemStack st in iei.items)
-							{
-								mGameAPI.Console_Write("Item: " + st.id + ", " + st.count);
-							}
-
-							//set the timestamp
-							if(mPlayerSacTimes.ContainsKey(iei.id))
-							{
-								mPlayerSacTimes[iei.id]	=DateTime.Now;
-							}
-							else
-							{
-								mPlayerSacTimes.Add(iei.id, DateTime.Now);
-							}
-						}
+						HandleSacrificeItems(data as ItemExchangeInfo);
 						break;
 
 					case CmdId.Event_Playfield_Stats:
@@ -238,54 +195,13 @@ namespace ClanWarsModule
 						break;
 
 					case CmdId.Event_GlobalStructure_List:
-						GlobalStructureList	gsl	=data as GlobalStructureList;
-						foreach(KeyValuePair<string, List<GlobalStructureInfo>> pfstructs in gsl.globalStructures)
-						{
-							mGameAPI.Console_Write("GSL for " + pfstructs.Key);
-							foreach(GlobalStructureInfo gsi in pfstructs.Value)
-							{
-//								mGameAPI.Console_Write("Name: " + gsi.name);
-								if(gsi.name == "Tyada Rally")
-								{
-									MakeStartPositions(mStartPositionsTyada, gsi.pos);
-									mbStartsRecordedTyada	=true;
-									mTyadaRallyID			=gsi.id;
-								}
-								else if(gsi.name == "Castae Rally")
-								{
-									MakeStartPositions(mStartPositionsCastae, gsi.pos);
-									mbStartsRecordedCastae	=true;
-									mCastaeRallyID			=gsi.id;
-								}
-								else if(gsi.name == "Temple of Styx")
-								{
-									if(pfstructs.Key == "Castae")
-									{
-										mCastaeTempleID		=gsi.id;
-										mStyx.SetCastaeTemplePos(gsi.pos);
-									}
-									else if(pfstructs.Key == "Tyada")
-									{
-										mTyadaTempleID	=gsi.id;
-										mStyx.SetTyadaTemplePos(gsi.pos);
-									}
-								}
-							}
-						}
+						HandleGlobalStructureList(data as GlobalStructureList);
 						break;
 
 					//this event doesn't necessarily indicate a join,
 					//but is mostly join related
                     case CmdId.Event_Player_Info:
-						{
-							PlayerInfo	pi	=data as PlayerInfo;
-							if(pi == null)
-							{
-								break;
-							}
-
-							HandlePlayerInfo(pi);
-						}
+						HandlePlayerInfo(data as PlayerInfo);
                         break;
 
 					case CmdId.Event_Entity_PosAndRot:
@@ -435,6 +351,11 @@ namespace ClanWarsModule
 
 		void HandlePlayerInfo(PlayerInfo pi)
 		{
+			if(pi == null)
+			{
+				return;
+			}
+
 			//dead tracking?
 			if(bIsDeadListed(pi))
 			{
@@ -543,6 +464,97 @@ namespace ClanWarsModule
 		}
 		
 
+		void HandleGlobalStructureList(GlobalStructureList gsl)
+		{
+			if(gsl == null)
+			{
+				return;
+			}
+
+			foreach(KeyValuePair<string, List<GlobalStructureInfo>> pfstructs in gsl.globalStructures)
+			{
+				mGameAPI.Console_Write("GSL for " + pfstructs.Key);
+				foreach(GlobalStructureInfo gsi in pfstructs.Value)
+				{
+//					mGameAPI.Console_Write("Name: " + gsi.name);
+					if(gsi.name == "Tyada Rally")
+					{
+						MakeStartPositions(mStartPositionsTyada, gsi.pos);
+						mbStartsRecordedTyada	=true;
+						mTyadaRallyID			=gsi.id;
+					}
+					else if(gsi.name == "Castae Rally")
+					{
+						MakeStartPositions(mStartPositionsCastae, gsi.pos);
+						mbStartsRecordedCastae	=true;
+						mCastaeRallyID			=gsi.id;
+					}
+					else if(gsi.name == "Temple of Styx")
+					{
+						if(pfstructs.Key == "Castae")
+						{
+							mCastaeTempleID		=gsi.id;
+							mStyx.SetCastaeTemplePos(gsi.pos);
+						}
+						else if(pfstructs.Key == "Tyada")
+						{
+							mTyadaTempleID	=gsi.id;
+							mStyx.SetTyadaTemplePos(gsi.pos);
+						}
+					}
+				}
+			}
+		}
+
+
+		void HandleSacrificeItems(ItemExchangeInfo iei)
+		{
+			if(iei == null)
+			{
+				return;
+			}
+
+			if(!mPlayerEntIDToClientID.ContainsKey(iei.id))
+			{
+				mGameAPI.Console_Write("Player " + iei.id + " got itemExchange event but has no clientID recorded!");
+				return;
+			}
+
+			int	cid	=mPlayerEntIDToClientID[iei.id];
+			if(!mPlayerCIDToSteamID.ContainsKey(cid))
+			{
+				mGameAPI.Console_Write("Player " + cid + " got itemExchange event but has no steamID recorded!");
+				return;
+			}
+
+			if(!mPlayersSacrificing.Contains(iei.id))
+			{
+				mGameAPI.Console_Write("Player " + iei.id + " got itemExchange event but isn't sacrificing... Maybe another mod sent this event.");
+			}
+			else
+			{
+				mStyx.SacrificeItems(mPlayerCIDToSteamID[cid], iei.items);
+				mPlayersSacrificing.Remove(iei.id);
+
+				//for debugging prices and such
+				foreach(ItemStack st in iei.items)
+				{
+					mGameAPI.Console_Write("Item: " + st.id + ", " + st.count);
+				}
+
+				//set the timestamp
+				if(mPlayerSacTimes.ContainsKey(iei.id))
+				{
+					mPlayerSacTimes[iei.id]	=DateTime.Now;
+				}
+				else
+				{
+					mPlayerSacTimes.Add(iei.id, DateTime.Now);
+				}
+			}
+		}
+
+
 		void HandleDisconnect(int id)
 		{
 			{
@@ -577,7 +589,7 @@ namespace ClanWarsModule
 		{
 			mbMatchStarted	=true;
 
-			mSecondRemaining	=6;
+			mSecondRemaining	=16;
 
 			mCountDownTimer	=new Timer(1000);
 
