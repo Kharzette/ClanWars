@@ -158,46 +158,6 @@ namespace ClanWarsModule
         }
 
 
-		void PrivateMessage(int entID, string msg)
-		{
-			string	cmd	="say p:" + entID + " '" + msg + "'";
-            mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new Eleon.Modding.PString(cmd));
-		}
-
-
-		private void ChatMessage(String msg)
-        {
-            String command = "SAY '" + msg + "'";
-            mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new Eleon.Modding.PString(command));
-        }
-
-		private void TyadaChat(string msg)
-		{
-			string	cmd	="SAY f:Tyada '" + msg + "'";
-            mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new Eleon.Modding.PString(cmd));
-		}
-
-		private void CastaeChat(string msg)
-		{
-			string	cmd	="SAY f:Castae '" + msg + "'";
-            mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new Eleon.Modding.PString(cmd));
-		}
-
-        private void NormalMessage(String msg)
-        {
-            mGameAPI.Game_Request(CmdId.Request_InGameMessage_AllPlayers, 0, new IdMsgPrio(0, msg, 0, 100));
-        }
-
-        private void AlertMessage(String msg)
-        {
-            mGameAPI.Game_Request(CmdId.Request_InGameMessage_AllPlayers, 0, new IdMsgPrio(0, msg, 1, 100));
-        }
-
-        private void AttentionMessage(String msg)
-        {
-            mGameAPI.Game_Request(CmdId.Request_InGameMessage_AllPlayers, (ushort)CmdId.Request_InGameMessage_AllPlayers, new IdMsgPrio(0, msg, 2, 100));
-        }
-
         public void Game_Event(CmdId eventId, ushort seqNr, object data)
         {
             try
@@ -334,123 +294,7 @@ namespace ClanWarsModule
 								break;
 							}
 
-							//dead tracking?
-							if(bIsDeadListed(pi))
-							{
-								HandleDead(pi);
-							}
-
-							//if the match already started, new players joining should
-							//not be allowed to interfere.  Observer would be ideal
-							//maybe add them to a powerless faction?
-							if(mbMatchStarted)
-							{
-								//check for disconnected players rejoining
-								if(bInCastaeDiscos(pi))
-								{
-									mGameAPI.Console_Write("Player " + pi.playerName + " rejoin to Castae...");
-									AttentionMessage(pi.playerName + " has returned to Clan Castae!");
-									mCastaeDiscos.Remove(pi);
-									mClanCastae.Add(pi);
-									mPlayerCIDToSteamID.Add(pi.clientId, pi.steamId);
-									mPlayerSteamIDToClientID.Add(pi.steamId, pi.clientId);
-									mPlayerEntIDToClientID.Add(pi.entityId, pi.clientId);
-									mPlayerSteamIDToEntID.Add(pi.steamId, pi.entityId);
-								}
-								else if(bInTyadaDiscos(pi))
-								{
-									mGameAPI.Console_Write("Player " + pi.playerName + " rejoin to Tyada...");
-									AttentionMessage(pi.playerName + " has returned to Clan Tyada!");
-									mTyadaDiscos.Remove(pi);
-									mClanTyada.Add(pi);
-									mPlayerCIDToSteamID.Add(pi.clientId, pi.steamId);
-									mPlayerSteamIDToClientID.Add(pi.steamId, pi.clientId);
-									mPlayerEntIDToClientID.Add(pi.entityId, pi.clientId);
-									mPlayerSteamIDToEntID.Add(pi.steamId, pi.entityId);
-								}
-								else
-								{
-									if(!bInClanCastae(pi) && !bInClanTyada(pi))
-									{
-										mGameAPI.Console_Write("Player " + pi.playerName + " late join...");
-										AttentionMessage(pi.playerName + " has joined too late!");
-									}
-								}
-								break;
-							}
-
-							if(pi.startPlayfield == "Castae")
-							{
-								if(!bInClanCastae(pi))
-								{
-									mGameAPI.Console_Write("Player " + pi.playerName + " joins Castae...");
-									AttentionMessage(pi.playerName + " has joined Clan Castae!");
-									mClanCastae.Add(pi);
-									mPlayerCIDToSteamID.Add(pi.clientId, pi.steamId);
-									mPlayerSteamIDToClientID.Add(pi.steamId, pi.clientId);
-									mPlayerEntIDToClientID.Add(pi.entityId, pi.clientId);
-									mPlayerSteamIDToEntID.Add(pi.steamId, pi.entityId);
-
-									//track player current playfield
-									mPlayerCurPlayFields.Add(pi.entityId, pi.playfield);
-									mPlayerPosNRots.Add(pi.entityId, new IdPositionRotation(pi.entityId, pi.pos, pi.rot));
-
-									if(!mbClanCastaeCreated)
-									{
-										//good time to make the factions
-										string	makeFact	="remoteex cl=" + pi.clientId + " faction create Castae";
-										mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new PString(makeFact));
-										mbClanCastaeCreated	=true;
-									}
-
-									//put them in the clan
-									string	joinFact	="remoteex cl=" + pi.clientId + " faction join Castae " + pi.playerName;
-									mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new PString(joinFact));
-								}
-							}
-							else if(pi.startPlayfield == "Tyada")
-							{
-								if(!bInClanTyada(pi))
-								{
-									mGameAPI.Console_Write("Player " + pi.playerName + " joins Tyada...");
-									AttentionMessage(pi.playerName + " has joined Clan Tyada!");
-									mClanTyada.Add(pi);
-									mPlayerCIDToSteamID.Add(pi.clientId, pi.steamId);
-									mPlayerSteamIDToClientID.Add(pi.steamId, pi.clientId);
-									mPlayerEntIDToClientID.Add(pi.entityId, pi.clientId);
-									mPlayerSteamIDToEntID.Add(pi.steamId, pi.entityId);
-
-									//track player current playfield / position
-									mPlayerCurPlayFields.Add(pi.entityId, pi.playfield);
-									mPlayerPosNRots.Add(pi.entityId, new IdPositionRotation(pi.entityId, pi.pos, pi.rot));
-
-									if(!mbClanTyadaCreated)
-									{
-										//make faction
-										string	makeFact	="remoteex cl=" + pi.clientId + " faction create Tyada";
-										mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new PString(makeFact));
-										mbClanTyadaCreated	=true;
-									}
-
-									//put them in the clan
-									string	joinFact	="remoteex cl=" + pi.clientId + " faction join Tyada " + pi.playerName;
-									mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new PString(joinFact));
-								}
-							}
-							else
-							{
-								if(!bInClanCastae(pi) && !bInClanTyada(pi))
-								{
-									mGameAPI.Console_Write("Player " + pi.playerName + " unclanned join...");
-									AttentionMessage(pi.playerName + " started in an odd location, no clans for you!");
-								}
-							}
-
-							if(bMatchReadyToStart() && !mbMatchStarted)
-							{
-								mGameAPI.Console_Write("Player " + pi.playerName + " causing match start...");
-								MatchStart();
-							}
+							HandlePlayerInfo(pi);
 						}
                         break;
 
@@ -484,33 +328,7 @@ namespace ClanWarsModule
 								break;
 							}
 
-							PlayerInfo	casResult	=mClanCastae.FirstOrDefault(e => e.entityId == pid.id);
-							if(casResult != null)
-							{
-								mClanCastae.Remove(casResult);
-								mCastaeDiscos.Add(casResult);
-								AttentionMessage(casResult.playerName + " has left the match from Clan Castae!  They can rejoin before the match ends.");
-								mGameAPI.Console_Write("Player " + casResult.playerName + " disco castae...");
-
-								mPlayerCIDToSteamID.Remove(casResult.clientId);
-								mPlayerSteamIDToClientID.Remove(casResult.steamId);
-								mPlayerEntIDToClientID.Remove(casResult.entityId);
-								mPlayerSteamIDToEntID.Remove(casResult.steamId);
-							}
-
-							PlayerInfo	tyResult	=mClanTyada.FirstOrDefault(e => e.entityId == pid.id);
-							if(tyResult != null)
-							{
-								mClanTyada.Remove(tyResult);
-								mTyadaDiscos.Add(tyResult);
-								AttentionMessage(tyResult.playerName + " has left the match from Clan Tyada!  They can rejoin before the match ends.");
-								mGameAPI.Console_Write("Player " + tyResult.playerName + " disco tyada...");
-
-								mPlayerCIDToSteamID.Remove(tyResult.clientId);
-								mPlayerSteamIDToClientID.Remove(tyResult.steamId);
-								mPlayerEntIDToClientID.Remove(tyResult.entityId);
-								mPlayerSteamIDToEntID.Remove(tyResult.steamId);
-							}
+							HandleDisconnect(pid.id);
 						}
                         break;
 
@@ -588,14 +406,181 @@ namespace ClanWarsModule
             }
         }
 
-        public void Game_Update()
+
+		public void Game_Update()
         {
         }
+
 
         public void Game_Exit()
         {
             mGameAPI.Console_Write("ClanWars: Exit");
+
+			mStyx.eDebugSpew			-=OnDebugSpew;
+			mStyx.eGameEnd				-=OnStyxGameEnd;
+			mStyx.eReturnItems			-=OnStyxReturnItems;
+			mStyx.eSpeakToAll			-=OnStyxSpeakToAll;
+			mStyx.eSpeakToPlayer		-=OnStyxSpeakToPlayer;
+			mStyx.eSpeakToPlayerClan	-=OnStyxSpeakToPlayerClan;
         }
+
+
+		void TrackIDs(int clientID, int entID, string steamID)
+		{
+			mPlayerCIDToSteamID.Add(clientID, steamID);
+			mPlayerSteamIDToClientID.Add(steamID, clientID);
+			mPlayerEntIDToClientID.Add(entID, clientID);
+			mPlayerSteamIDToEntID.Add(steamID, entID);
+		}
+
+
+		void UnTrackIDs(int clientID, int entID, string steamID)
+		{
+			mPlayerCIDToSteamID.Remove(clientID);
+			mPlayerSteamIDToClientID.Remove(steamID);
+			mPlayerEntIDToClientID.Remove(entID);
+			mPlayerSteamIDToEntID.Remove(steamID);
+		}
+
+
+		void HandlePlayerInfo(PlayerInfo pi)
+		{
+			//dead tracking?
+			if(bIsDeadListed(pi))
+			{
+				HandleDead(pi);
+			}
+
+			//if the match already started, new players joining should
+			//not be allowed to interfere.  Observer would be ideal
+			//maybe add them to a powerless faction?
+			if(mbMatchStarted)
+			{
+				//check for disconnected players rejoining
+				if(bInCastaeDiscos(pi))
+				{
+					mGameAPI.Console_Write("Player " + pi.playerName + " rejoin to Castae...");
+					AttentionMessage(pi.playerName + " has returned to Clan Castae!");
+					mCastaeDiscos.Remove(pi);
+					mClanCastae.Add(pi);
+					TrackIDs(pi.clientId, pi.entityId, pi.steamId);
+				}
+				else if(bInTyadaDiscos(pi))
+				{
+					mGameAPI.Console_Write("Player " + pi.playerName + " rejoin to Tyada...");
+					AttentionMessage(pi.playerName + " has returned to Clan Tyada!");
+					mTyadaDiscos.Remove(pi);
+					mClanTyada.Add(pi);
+					TrackIDs(pi.clientId, pi.entityId, pi.steamId);
+				}
+				else
+				{
+					if(!bInClanCastae(pi) && !bInClanTyada(pi))
+					{
+						mGameAPI.Console_Write("Player " + pi.playerName + " late join...");
+						AttentionMessage(pi.playerName + " has joined too late!");
+					}
+				}
+				return;
+			}
+
+			if(pi.startPlayfield == "Castae")
+			{
+				if(!bInClanCastae(pi))
+				{
+					mGameAPI.Console_Write("Player " + pi.playerName + " joins Castae...");
+					AttentionMessage(pi.playerName + " has joined Clan Castae!");
+					mClanCastae.Add(pi);
+					TrackIDs(pi.clientId, pi.entityId, pi.steamId);
+
+					//track player current playfield
+					mPlayerCurPlayFields.Add(pi.entityId, pi.playfield);
+					mPlayerPosNRots.Add(pi.entityId, new IdPositionRotation(pi.entityId, pi.pos, pi.rot));
+
+					if(!mbClanCastaeCreated)
+					{
+						//good time to make the factions
+						string	makeFact	="remoteex cl=" + pi.clientId + " faction create Castae";
+						mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new PString(makeFact));
+						mbClanCastaeCreated	=true;
+					}
+
+					//put them in the clan
+					string	joinFact	="remoteex cl=" + pi.clientId + " faction join Castae " + pi.playerName;
+					mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new PString(joinFact));
+				}
+			}
+			else if(pi.startPlayfield == "Tyada")
+			{
+				if(!bInClanTyada(pi))
+				{
+					mGameAPI.Console_Write("Player " + pi.playerName + " joins Tyada...");
+					AttentionMessage(pi.playerName + " has joined Clan Tyada!");
+					mClanTyada.Add(pi);
+					TrackIDs(pi.clientId, pi.entityId, pi.steamId);
+
+					//track player current playfield / position
+					mPlayerCurPlayFields.Add(pi.entityId, pi.playfield);
+					mPlayerPosNRots.Add(pi.entityId, new IdPositionRotation(pi.entityId, pi.pos, pi.rot));
+
+					if(!mbClanTyadaCreated)
+					{
+						//make faction
+						string	makeFact	="remoteex cl=" + pi.clientId + " faction create Tyada";
+						mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new PString(makeFact));
+						mbClanTyadaCreated	=true;
+					}
+
+					//put them in the clan
+					string	joinFact	="remoteex cl=" + pi.clientId + " faction join Tyada " + pi.playerName;
+					mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new PString(joinFact));
+				}
+			}
+			else
+			{
+				if(!bInClanCastae(pi) && !bInClanTyada(pi))
+				{
+					mGameAPI.Console_Write("Player " + pi.playerName + " unclanned join...");
+					AttentionMessage(pi.playerName + " started in an odd location, no clans for you!");
+				}
+			}
+
+			if(bMatchReadyToStart() && !mbMatchStarted)
+			{
+				mGameAPI.Console_Write("Player " + pi.playerName + " causing match start...");
+				MatchStart();
+			}
+		}
+		
+
+		void HandleDisconnect(int id)
+		{
+			{
+				PlayerInfo	casResult	=mClanCastae.FirstOrDefault(e => e.entityId == id);
+				if(casResult != null)
+				{
+					mClanCastae.Remove(casResult);
+					mCastaeDiscos.Add(casResult);
+					AttentionMessage(casResult.playerName + " has left the match from Clan Castae!  They can rejoin before the match ends.");
+					mGameAPI.Console_Write("Player " + casResult.playerName + " disco castae...");
+
+					UnTrackIDs(casResult.clientId, casResult.entityId, casResult.steamId);
+				}
+			}
+
+			{
+				PlayerInfo	tyResult	=mClanTyada.FirstOrDefault(e => e.entityId == id);
+				if(tyResult != null)
+				{
+					mClanTyada.Remove(tyResult);
+					mTyadaDiscos.Add(tyResult);
+					AttentionMessage(tyResult.playerName + " has left the match from Clan Tyada!  They can rejoin before the match ends.");
+					mGameAPI.Console_Write("Player " + tyResult.playerName + " disco tyada...");
+
+					UnTrackIDs(tyResult.clientId, tyResult.entityId, tyResult.steamId);
+				}
+			}
+		}
 
 
 		void MatchStart()
@@ -860,11 +845,11 @@ namespace ClanWarsModule
 		{
 			if(!mPlayerSacTimes.ContainsKey(playerEntID))
 			{
-				mGameAPI.Console_Write("No sac time recorded for player");
+//				mGameAPI.Console_Write("No sac time recorded for player");
 				return	true;
 			}
 			TimeSpan	since	=DateTime.Now - mPlayerSacTimes[playerEntID];
-			mGameAPI.Console_Write("Player last sacrificed : " + since.ToString());
+//			mGameAPI.Console_Write("Player last sacrificed : " + since.ToString());
 			if(since.TotalSeconds < mConstants["StyxAskForMoreInterval"])
 			{
 				return	false;
@@ -881,15 +866,15 @@ namespace ClanWarsModule
 				{
 					if(mStyx.bCheckNear(mPlayerPosNRots[entID].pos, true))
 					{
-						mGameAPI.Console_Write("Player within range of Styx");
+//						mGameAPI.Console_Write("Player within range of Styx");
 						if(!mPlayersSacrificing.Contains(entID))
 						{
-							mGameAPI.Console_Write("Player not already sacrificing");
+//							mGameAPI.Console_Write("Player not already sacrificing");
 
 							//make sure styx doesn't greedily spam
 							if(CheckStyxSpamInterval(entID))
 							{
-								mGameAPI.Console_Write("Player ready to fork over goodies");
+//								mGameAPI.Console_Write("Player ready to fork over goodies");
 								mPlayersSacrificing.Add(entID);
 								SacrificeItems(entID);
 							}
@@ -987,6 +972,146 @@ namespace ClanWarsModule
 		}
 
 
+ 		void LoadConstants()
+		{
+			//can't be too sure of what the current directory is
+			Assembly	ass	=Assembly.GetExecutingAssembly();
+
+			string	dllDir	=Path.GetDirectoryName(ass.Location);
+
+			string	filePath	=Path.Combine(dllDir, "Constants.txt");
+
+			mGameAPI.Console_Write("Loading Config file for constants: " + filePath);
+
+			FileStream	fs	=new FileStream(filePath, FileMode.Open, FileAccess.Read);
+			if(fs == null)
+			{
+				return;
+			}
+
+			StreamReader	sr	=new StreamReader(fs);
+			if(sr == null)
+			{
+				return;
+			}
+
+			while(!sr.EndOfStream)
+			{
+				string	line	=sr.ReadLine();
+				if(line == "")
+				{
+					//skip blank lines
+					continue;
+				}
+
+				string	[]toks	=line.Split(' ', '\t');
+
+				if(toks.Length < 2)
+				{
+					//bad line
+					mGameAPI.Console_Write("Bad line in constants config file at position: " + sr.BaseStream.Position);
+					continue;
+				}
+
+				//skip whitespace
+				int	idx	=0;
+				while(idx < toks.Length)
+				{
+					if(toks[idx] == "" || toks[idx] == " " || toks[idx] == "\t")
+					{
+						idx++;
+						continue;
+					}
+					break;
+				}
+
+				if(toks[idx].StartsWith("//"))
+				{
+					continue;
+				}
+
+				string	cname	=toks[idx];
+				idx++;
+
+				while(idx < toks.Length)
+				{
+					if(toks[idx] == "" || toks[idx] == " " || toks[idx] == "\t")
+					{
+						idx++;
+						continue;
+					}
+					break;
+				}
+
+				int	val	=0;
+				if(!int.TryParse(toks[idx], out val))
+				{
+					mGameAPI.Console_Write("Bad token looking for item id in constants config file at position: " + sr.BaseStream.Position);
+					continue;
+				}
+
+				mConstants.Add(cname, val);
+			}
+
+			sr.Close();
+			fs.Close();
+
+			foreach(KeyValuePair<string, int> vals in mConstants)
+			{
+				mGameAPI.Console_Write("Const: " + vals.Key + ", " + vals.Value);
+			}
+		}
+
+
+		#region Chat Stuff
+		void PrivateMessage(int entID, string msg)
+		{
+			string	cmd	="say p:" + entID + " '" + msg + "'";
+            mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new Eleon.Modding.PString(cmd));
+		}
+
+
+		void ChatMessage(String msg)
+        {
+            String command = "SAY '" + msg + "'";
+            mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new Eleon.Modding.PString(command));
+        }
+
+
+		void TyadaChat(string msg)
+		{
+			string	cmd	="SAY f:Tyada '" + msg + "'";
+            mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new Eleon.Modding.PString(cmd));
+		}
+
+
+		void CastaeChat(string msg)
+		{
+			string	cmd	="SAY f:Castae '" + msg + "'";
+            mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new Eleon.Modding.PString(cmd));
+		}
+
+
+        void NormalMessage(String msg)
+        {
+            mGameAPI.Game_Request(CmdId.Request_InGameMessage_AllPlayers, 0, new IdMsgPrio(0, msg, 0, 100));
+        }
+
+
+        void AlertMessage(String msg)
+        {
+            mGameAPI.Game_Request(CmdId.Request_InGameMessage_AllPlayers, 0, new IdMsgPrio(0, msg, 1, 100));
+        }
+
+
+        void AttentionMessage(String msg)
+        {
+            mGameAPI.Game_Request(CmdId.Request_InGameMessage_AllPlayers, (ushort)CmdId.Request_InGameMessage_AllPlayers, new IdMsgPrio(0, msg, 2, 100));
+        }
+		#endregion
+
+
+		#region Event Handlers
 		void OnPosAndRotTimer(Object src, ElapsedEventArgs eea)
 		{
 //			mGameAPI.Console_Write("PosAndRot timer tick");
@@ -1082,98 +1207,6 @@ namespace ClanWarsModule
 		}
 
 
- 		void LoadConstants()
-		{
-			//can't be too sure of what the current directory is
-			Assembly	ass	=Assembly.GetExecutingAssembly();
-
-			string	dllDir	=Path.GetDirectoryName(ass.Location);
-
-			string	filePath	=Path.Combine(dllDir, "Constants.txt");
-
-			mGameAPI.Console_Write("Loading Config file for constants: " + filePath);
-
-			FileStream	fs	=new FileStream(filePath, FileMode.Open, FileAccess.Read);
-			if(fs == null)
-			{
-				return;
-			}
-
-			StreamReader	sr	=new StreamReader(fs);
-			if(sr == null)
-			{
-				return;
-			}
-
-			while(!sr.EndOfStream)
-			{
-				string	line	=sr.ReadLine();
-				if(line == "")
-				{
-					//skip blank lines
-					continue;
-				}
-
-				string	[]toks	=line.Split(' ', '\t');
-
-				if(toks.Length < 2)
-				{
-					//bad line
-					mGameAPI.Console_Write("Bad line in constants config file at position: " + sr.BaseStream.Position);
-					continue;
-				}
-
-				//skip whitespace
-				int	idx	=0;
-				while(idx < toks.Length)
-				{
-					if(toks[idx] == "" || toks[idx] == " " || toks[idx] == "\t")
-					{
-						idx++;
-						continue;
-					}
-					break;
-				}
-
-				if(toks[idx].StartsWith("//"))
-				{
-					continue;
-				}
-
-				string	cname	=toks[idx];
-				idx++;
-
-				while(idx < toks.Length)
-				{
-					if(toks[idx] == "" || toks[idx] == " " || toks[idx] == "\t")
-					{
-						idx++;
-						continue;
-					}
-					break;
-				}
-
-				int	val	=0;
-				if(!int.TryParse(toks[idx], out val))
-				{
-					mGameAPI.Console_Write("Bad token looking for item id in constants config file at position: " + sr.BaseStream.Position);
-					continue;
-				}
-
-				mConstants.Add(cname, val);
-			}
-
-			sr.Close();
-			fs.Close();
-
-			foreach(KeyValuePair<string, int> vals in mConstants)
-			{
-				mGameAPI.Console_Write("Const: " + vals.Key + ", " + vals.Value);
-			}
-		}
-
-
-		#region Event Handlers
 		void OnDebugSpew(object sender, EventArgs ea)
 		{
 			string	spew	=sender as string;

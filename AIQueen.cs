@@ -414,15 +414,15 @@ namespace ClanWarsModule
 
 			if(tyadaScore == castScore)
 			{
-				SpeakToAll("The game ends with a tie!  What a wonderful match.  My people were very entertained!", true);
+				SpeakToAll("Styx: The game ends with a tie!  What a wonderful match.  My people were very entertained!", true);
 			}
 			else if(tyadaScore > castScore)
 			{
-				SpeakToAll("Tyada is victorious!  Their glory shall live on for eternity in our memory cells!", true);
+				SpeakToAll("Styx: Tyada is victorious!  Their glory shall live on for eternity in our memory cells!", true);
 			}
 			else
 			{
-				SpeakToAll("Castae is victorious!  Their glory shall live on for eternity in our memory cells!", true);
+				SpeakToAll("Styx: Castae is victorious!  Their glory shall live on for eternity in our memory cells!", true);
 			}
 			eGameEnd?.Invoke(null, null);
 		}
@@ -430,7 +430,7 @@ namespace ClanWarsModule
 
 		void OnFinalSeconds(Object sender, ElapsedEventArgs e)
 		{
-			SpeakToAll("Ten seconds!", false);
+			SpeakToAll("\nStyx: Ten seconds!", false);
 		}
 
 
@@ -439,7 +439,7 @@ namespace ClanWarsModule
 			long	tyadaScore	=CalcScore(true);
 			long	castScore	=CalcScore(false);
 
-			string	update	="";
+			string	update	="Styx: ";
 
 
 			if(tyadaScore == castScore)
@@ -482,8 +482,7 @@ namespace ClanWarsModule
 			long	tyadaScore	=CalcScore(true);
 			long	castScore	=CalcScore(false);
 
-			string	update	="";
-
+			string	update	="\nStyx: ";
 
 			if(tyadaScore == castScore)
 			{
@@ -504,7 +503,7 @@ namespace ClanWarsModule
 			}
 			else if(mQuartersElapsed == 2)
 			{
-				update	+=" at half time remaining.";
+				update	+="at half time remaining.";
 			}
 
 			SpeakToAll(update, false);
