@@ -53,6 +53,9 @@
   <ItemGroup>
     <Compile Include="AIQueen.cs" />
     <Compile Include="ClanWars.cs" />
+    <Compile Include="PlayFieldTimer.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="SpeakEventArgs.cs" />
     <Compile Include="VecStuff.cs" />

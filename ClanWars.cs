@@ -5,7 +5,7 @@ using System.IO;
 using System.Collections.Generic;
 using System.Linq;
 using Eleon.Modding;
-
+using System.Diagnostics;
 
 namespace ClanWarsModule
 {
@@ -23,9 +23,17 @@ namespace ClanWarsModule
 
 		AIQueen	mStyx;
 
+		//starter playfield auto start stuff
+		List<Process>	mPlayFieldServers;
+		bool			mbRequestedTyadaLoad, mbRequestedCastaeLoad;
+		Timer			mStarterLoadTimer;
+
 		//constants from a config file
 		Dictionary<string, int>			mIConstants;
 		Dictionary<string, PVector3>	mVConstants;
+
+		//tracking playfields in use
+		Dictionary<string, PlayFieldTimer>	mPlayFieldDeSpawnTimers;
 
 		//start pad position stuff
 		bool			mbStartsRecordedTyada, mbStartsRecordedCastae;
@@ -57,8 +65,8 @@ namespace ClanWarsModule
 		Dictionary<int, string>	mPlayerCurPlayFields;
 
 		//players disconnected during a match (they can rejoin)
-        List<PlayerInfo>	mCastaeDiscos;
-        List<PlayerInfo>	mTyadaDiscos;
+        List<string>	mCastaeDiscos;
+        List<string>	mTyadaDiscos;
 
 		//players currently dead and respawning
 		List<Deadites>	mDeadPlayers;
@@ -117,13 +125,12 @@ namespace ClanWarsModule
 			mClanCastae	=new List<PlayerInfo>();
 			mClanTyada	=new List<PlayerInfo>();
 
-			mCastaeDiscos	=new List<PlayerInfo>();
-			mTyadaDiscos	=new List<PlayerInfo>();
+			mCastaeDiscos	=new List<string>();
+			mTyadaDiscos	=new List<string>();
 
 			mDeadPlayers	=new List<Deadites>();
 
 			mPlayersSacrificing	=new List<int>();
-
 			mPlayerSacTimes	=new Dictionary<int, DateTime>();
 
 			mStartPositionsTyada		=new List<PVector3>();
@@ -135,12 +142,14 @@ namespace ClanWarsModule
 
 			mGameDataTimer	=new Timer(GameDataPollInterval);
 
-			mGameDataTimer.Elapsed	+=OnGameDataTimer;
+			mGameDataTimer.Elapsed		+=OnGameDataTimer;
 			mGameDataTimer.AutoReset	=true;
 			mGameDataTimer.Start();
 
 			mPlayerPosNRots			=new Dictionary<int, IdPositionRotation>();
 			mPlayerCurPlayFields	=new Dictionary<int, string>();
+			mPlayFieldDeSpawnTimers	=new Dictionary<string, PlayFieldTimer>();
+			mPlayFieldServers		=new List<Process>();
 
 			LoadConstants();
 
@@ -158,38 +167,18 @@ namespace ClanWarsModule
 						HandleSacrificeItems(data as ItemExchangeInfo);
 						break;
 
-					case CmdId.Event_Playfield_Stats:
-						PlayfieldStats	pfs	=data as PlayfieldStats;
-						if(pfs == null)
-						{
-							return;
-						}
-
-						if(pfs.playfield == "Tyada")
-						{
-							mTyadaPFID	=pfs.processId;
-						}
-						else if(pfs.playfield == "Castae")
-						{
-							mCastaePFID	=pfs.processId;
-						}
-						break;
-
 					case CmdId.Event_Playfield_List:
 						PlayfieldList	pfl	=data as PlayfieldList;
 						foreach(string pf in pfl.playfields)
 						{
+							mGameAPI.Console_Write("Playfield: " + pf);
 							if(pf == "Tyada" && !mbStartsRecordedTyada)
 							{
 								mGameAPI.Game_Request(CmdId.Request_GlobalStructure_Update, (ushort)0, new PString("Tyada"));
-								mGameAPI.Console_Write("Playfield list shows Tyada up");
-								mGameAPI.Game_Request(CmdId.Request_Playfield_Stats, 0, new PString("Tyada"));
 							}
 							else if(pf == "Castae" && !mbStartsRecordedCastae)
 							{
 								mGameAPI.Game_Request(CmdId.Request_GlobalStructure_Update, (ushort)0, new PString("Castae"));
-								mGameAPI.Console_Write("Playfield list shows Castae up");
-								mGameAPI.Game_Request(CmdId.Request_Playfield_Stats, 0, new PString("Castae"));
 							}
 						}
 						break;
@@ -223,10 +212,12 @@ namespace ClanWarsModule
 						break;
 
                     case CmdId.Event_Player_Connected:
+						mGameAPI.Console_Write("spam: Player connected: " + ((Id)data).id);
                         mGameAPI.Game_Request(CmdId.Request_Player_Info, 0, (Id)data);
                         break;
 
                     case CmdId.Event_Player_Disconnected:
+			            mGameAPI.Console_Write("spam: Event_Player_Disconnected");
 						{
 							Id	pid	=data as Id;
 							if(pid == null)
@@ -239,6 +230,7 @@ namespace ClanWarsModule
                         break;
 
                     case CmdId.Event_Statistics:
+			            mGameAPI.Console_Write("spam: Event_Statistics");
                         StatisticsParam	stats	=(StatisticsParam)data;
 
                         if(stats.type == StatisticsType.PlayerDied)
@@ -279,7 +271,24 @@ namespace ClanWarsModule
 
 						if(mPlayerCurPlayFields.ContainsKey(idpf.id))
 						{
-							mPlayerCurPlayFields[idpf.id]	=idpf.playfield;
+							//see if anyone is still in the previous playfield
+							string	newPF	=idpf.playfield;
+							string	prev	=mPlayerCurPlayFields[idpf.id];
+							int		num		=mPlayerCurPlayFields.Where(pf => pf.Value == prev).Count();
+							if(num <= 1 && prev != "Tyada" && prev != "Castae")
+							{
+								mGameAPI.Console_Write("Scheduling close of empty playfield " + prev);
+								CloseEmptyPlayField(prev);
+							}
+
+							//see if this playfield we are switching to was scheduled to be shut off
+							if(mPlayFieldDeSpawnTimers.ContainsKey(newPF))
+							{
+								mGameAPI.Console_Write("Player entering a playfield about to be shut off, cancelling the shutoff...");
+								mPlayFieldDeSpawnTimers[idpf.playfield].Stop();
+								mPlayFieldDeSpawnTimers.Remove(newPF);
+							}
+							mPlayerCurPlayFields[idpf.id]	=newPF;
 						}
 						else
 						{
@@ -333,6 +342,9 @@ namespace ClanWarsModule
 
 		void TrackIDs(int clientID, int entID, string steamID)
 		{
+			//make sure not already in dictionary
+			UnTrackIDs(clientID, entID, steamID);
+
 			mPlayerCIDToSteamID.Add(clientID, steamID);
 			mPlayerSteamIDToClientID.Add(steamID, clientID);
 			mPlayerEntIDToClientID.Add(entID, clientID);
@@ -346,6 +358,73 @@ namespace ClanWarsModule
 			mPlayerSteamIDToClientID.Remove(steamID);
 			mPlayerEntIDToClientID.Remove(entID);
 			mPlayerSteamIDToEntID.Remove(steamID);
+		}
+
+
+		bool bHasPFProcess(Process p)
+		{
+			foreach(Process pc in mPlayFieldServers)
+			{
+				if(pc.Id == p.Id)
+				{
+					return	true;
+				}
+			}
+			return	false;
+		}
+
+
+		void JoinTyada(PlayerInfo pi)
+		{
+			mGameAPI.Console_Write("Player " + pi.playerName + " joins Tyada...");
+			AttentionMessage(pi.playerName + " has joined Clan Tyada!");
+			mClanTyada.Add(pi);
+			TrackIDs(pi.clientId, pi.entityId, pi.steamId);
+
+			//track player current playfield / position
+			mPlayerCurPlayFields.Add(pi.entityId, pi.playfield);
+			mPlayerPosNRots.Add(pi.entityId, new IdPositionRotation(pi.entityId, pi.pos, pi.rot));
+
+			if(!mbClanTyadaCreated)
+			{
+				//make faction
+				string	makeFact	="remoteex cl=" + pi.clientId + " 'faction create Tyada'";
+				mGameAPI.Console_Write("Attempting faction create command: " + makeFact);
+				mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new PString(makeFact));
+				mbClanTyadaCreated	=true;
+			}
+			else
+			{
+				//put them in the clan
+				string	joinFact	="remoteex cl=" + pi.clientId + " 'faction join Tyada " + pi.playerName + "'";
+				mGameAPI.Console_Write("Attempting faction join command: " + joinFact);
+				mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new PString(joinFact));
+			}
+		}
+
+
+		void JoinCastae(PlayerInfo pi)
+		{
+			mGameAPI.Console_Write("Player " + pi.playerName + " joins Castae...");
+			AttentionMessage(pi.playerName + " has joined Clan Castae!");
+			mClanCastae.Add(pi);
+			TrackIDs(pi.clientId, pi.entityId, pi.steamId);
+
+			//track player current playfield
+			mPlayerCurPlayFields.Add(pi.entityId, pi.playfield);
+			mPlayerPosNRots.Add(pi.entityId, new IdPositionRotation(pi.entityId, pi.pos, pi.rot));
+
+			if(!mbClanCastaeCreated)
+			{
+				//good time to make the factions
+				string	makeFact	="remoteex cl=" + pi.clientId + " faction create Castae";
+				mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new PString(makeFact));
+				mbClanCastaeCreated	=true;
+			}
+
+			//put them in the clan
+			string	joinFact	="remoteex cl=" + pi.clientId + " faction join Castae " + pi.playerName;
+			mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new PString(joinFact));
 		}
 
 
@@ -372,7 +451,7 @@ namespace ClanWarsModule
 				{
 					mGameAPI.Console_Write("Player " + pi.playerName + " rejoin to Castae...");
 					AttentionMessage(pi.playerName + " has returned to Clan Castae!");
-					mCastaeDiscos.Remove(pi);
+					mCastaeDiscos.Remove(pi.steamId);
 					mClanCastae.Add(pi);
 					TrackIDs(pi.clientId, pi.entityId, pi.steamId);
 				}
@@ -380,7 +459,7 @@ namespace ClanWarsModule
 				{
 					mGameAPI.Console_Write("Player " + pi.playerName + " rejoin to Tyada...");
 					AttentionMessage(pi.playerName + " has returned to Clan Tyada!");
-					mTyadaDiscos.Remove(pi);
+					mTyadaDiscos.Remove(pi.steamId);
 					mClanTyada.Add(pi);
 					TrackIDs(pi.clientId, pi.entityId, pi.steamId);
 				}
@@ -395,56 +474,53 @@ namespace ClanWarsModule
 				return;
 			}
 
+			int	teamSize	=mIConstants["TeamSize"];
+
 			if(pi.startPlayfield == "Castae")
 			{
 				if(!bInClanCastae(pi))
 				{
-					mGameAPI.Console_Write("Player " + pi.playerName + " joins Castae...");
-					AttentionMessage(pi.playerName + " has joined Clan Castae!");
-					mClanCastae.Add(pi);
-					TrackIDs(pi.clientId, pi.entityId, pi.steamId);
-
-					//track player current playfield
-					mPlayerCurPlayFields.Add(pi.entityId, pi.playfield);
-					mPlayerPosNRots.Add(pi.entityId, new IdPositionRotation(pi.entityId, pi.pos, pi.rot));
-
-					if(!mbClanCastaeCreated)
+					if(mClanCastae.Count >= teamSize)
 					{
-						//good time to make the factions
-						string	makeFact	="remoteex cl=" + pi.clientId + " faction create Castae";
-						mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new PString(makeFact));
-						mbClanCastaeCreated	=true;
+						mGameAPI.Console_Write("Player " + pi.playerName + " attempting to join Castae, but it is full!");
+						if(mClanTyada.Count < teamSize)
+						{
+							JoinTyada(pi);
+							PortPlayerHome(pi, "Tyada");
+						}
+						else
+						{
+							mGameAPI.Console_Write("Both teams full yet the game hasn't started... No idea how this could happen...");
+						}
 					}
-
-					//put them in the clan
-					string	joinFact	="remoteex cl=" + pi.clientId + " faction join Castae " + pi.playerName;
-					mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new PString(joinFact));
+					else
+					{
+						JoinCastae(pi);
+					}
 				}
 			}
 			else if(pi.startPlayfield == "Tyada")
 			{
 				if(!bInClanTyada(pi))
 				{
-					mGameAPI.Console_Write("Player " + pi.playerName + " joins Tyada...");
-					AttentionMessage(pi.playerName + " has joined Clan Tyada!");
-					mClanTyada.Add(pi);
-					TrackIDs(pi.clientId, pi.entityId, pi.steamId);
-
-					//track player current playfield / position
-					mPlayerCurPlayFields.Add(pi.entityId, pi.playfield);
-					mPlayerPosNRots.Add(pi.entityId, new IdPositionRotation(pi.entityId, pi.pos, pi.rot));
-
-					if(!mbClanTyadaCreated)
+					if(mClanTyada.Count >= teamSize)
 					{
-						//make faction
-						string	makeFact	="remoteex cl=" + pi.clientId + " faction create Tyada";
-						mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new PString(makeFact));
-						mbClanTyadaCreated	=true;
-					}
+						mGameAPI.Console_Write("Player " + pi.playerName + " attempting to join Tyada, but it is full!");
 
-					//put them in the clan
-					string	joinFact	="remoteex cl=" + pi.clientId + " faction join Tyada " + pi.playerName;
-					mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new PString(joinFact));
+						if(mClanCastae.Count < teamSize)
+						{
+							JoinCastae(pi);
+							PortPlayerHome(pi, "Castae");
+						}
+						else
+						{
+							mGameAPI.Console_Write("Both teams full yet the game hasn't started... No idea how this could happen...");
+						}
+					}
+					else
+					{
+						JoinTyada(pi);
+					}
 				}
 			}
 			else
@@ -461,6 +537,52 @@ namespace ClanWarsModule
 				mGameAPI.Console_Write("Player " + pi.playerName + " causing match start...");
 				MatchStart();
 			}
+			else
+			{
+				ReportPlayersNeeded();
+			}
+		}
+
+
+		void CloseEmptyPlayField(string pfName)
+		{
+			PlayFieldTimer	pfTimer	=new PlayFieldTimer(
+				mIConstants["EmptyPlayFieldShutOffSeconds"] * 1000, pfName);
+
+			pfTimer.Elapsed	+=OnPlayFieldCloseTimer;
+			pfTimer.Start();
+
+			mPlayFieldDeSpawnTimers.Add(pfName, pfTimer);
+		}
+
+
+		void ReportPlayersNeeded()
+		{
+			int	tyCount		=mClanTyada.Count;
+			int	casCount	=mClanCastae.Count;
+			int	teamSize	=mIConstants["TeamSize"];
+
+			string	rep	="";
+
+			if(tyCount == teamSize)
+			{
+				rep	+="Clan Tyada is full, ";
+			}
+			else
+			{
+				rep	+="Clan Tyada needs " + (teamSize - tyCount) + " more soldiers, ";
+			}
+
+			if(casCount == teamSize)
+			{
+				rep	+="Castae is full.";
+			}
+			else
+			{
+				rep	+="Castae needs " + (teamSize - casCount) + " more for the match to begin.";
+			}
+
+			ChatMessage(rep);			
 		}
 		
 
@@ -562,7 +684,7 @@ namespace ClanWarsModule
 				if(casResult != null)
 				{
 					mClanCastae.Remove(casResult);
-					mCastaeDiscos.Add(casResult);
+					mCastaeDiscos.Add(casResult.steamId);
 					AttentionMessage(casResult.playerName + " has left the match from Clan Castae!  They can rejoin before the match ends.");
 					mGameAPI.Console_Write("Player " + casResult.playerName + " disco castae...");
 
@@ -575,7 +697,7 @@ namespace ClanWarsModule
 				if(tyResult != null)
 				{
 					mClanTyada.Remove(tyResult);
-					mTyadaDiscos.Add(tyResult);
+					mTyadaDiscos.Add(tyResult.steamId);
 					AttentionMessage(tyResult.playerName + " has left the match from Clan Tyada!  They can rejoin before the match ends.");
 					mGameAPI.Console_Write("Player " + tyResult.playerName + " disco tyada...");
 
@@ -607,6 +729,10 @@ namespace ClanWarsModule
 
 		void UnlockDoors()
 		{
+			mGameAPI.Console_Write("Unlocking doors, IDs are: " +
+				mTyadaRallyID + ", " + mCastaeRallyID + ", " +
+				mTyadaTempleID + ", " + mCastaeTempleID);
+
 			//tyada door
 			string	doDoors	="remoteex pf=" + mTyadaPFID + " setdevicespublic " + mTyadaRallyID + " Door";
 			mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new PString(doDoors));
@@ -618,14 +744,6 @@ namespace ClanWarsModule
 			mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new PString(doDoors));
 
 			mGameAPI.Console_Write("Unlocking Castae Door with: " + doDoors);
-
-			//tyada temple door
-			doDoors	="remoteex pf=" + mTyadaPFID + " setdevicespublic " + mTyadaTempleID + " Door";
-			mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new PString(doDoors));
-
-			//castae temple door
-			doDoors	="remoteex pf=" + mCastaePFID + " setdevicespublic " + mCastaeTempleID + " Door";
-			mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new PString(doDoors));
 		}
 
 
@@ -771,9 +889,24 @@ namespace ClanWarsModule
 		}
 
 
+		void PortPlayerHome(PlayerInfo pi, string homePlayField)
+		{
+			List<PVector3>	starts	=(homePlayField == "Castae")? mStartPositionsCastae : mStartPositionsTyada;
+
+			int	randSpot	=mRand.Next(0, starts.Count);
+
+			PVector3	pos	=starts[randSpot];
+
+			IdPlayfieldPositionRotation	ipfpr	=new IdPlayfieldPositionRotation(pi.entityId, homePlayField, pos, new PVector3());
+
+			mGameAPI.Console_Write("Player " + pi.playerName + " being moved to rally from offworld to facilitate a team switch...");
+			mGameAPI.Game_Request(CmdId.Request_Player_ChangePlayerfield, (ushort)CmdId.Request_Player_ChangePlayerfield, ipfpr);
+		}
+
+
 		bool bMatchReadyToStart()
 		{
-			return	true;	//for testing
+//			return	true;	//for testing
 			return	(mClanCastae.Count == mIConstants["TeamSize"] && mClanTyada.Count == mIConstants["TeamSize"]);
 		}
 
@@ -804,13 +937,13 @@ namespace ClanWarsModule
 
 		bool bInCastaeDiscos(PlayerInfo pi)
 		{
-			return	(mCastaeDiscos.Where(e => e.entityId == pi.entityId).Count() != 0);
+			return	(mCastaeDiscos.Where(e => e == pi.steamId).Count() != 0);
 		}
 
 
 		bool bInTyadaDiscos(PlayerInfo pi)
 		{
-			return	(mTyadaDiscos.Where(e => e.entityId == pi.entityId).Count() != 0);
+			return	(mTyadaDiscos.Where(e => e == pi.steamId).Count() != 0);
 		}
 
 
@@ -1188,6 +1321,28 @@ namespace ClanWarsModule
 		}
 
 
+		void OnStarterPlayFieldTimeOut(Object src, ElapsedEventArgs eea)
+		{
+			if(mbStartsRecordedCastae && mbStartsRecordedTyada)
+			{
+				return;
+			}
+
+			if(mbRequestedTyadaLoad && !mbStartsRecordedTyada)
+			{
+				mGameAPI.Console_Write("Trying again to load starter Tyada");
+				int	pid	=mPlayFieldServers[0].Id;
+
+				//use 2 to load the starter planets and keep them loaded
+				PlayfieldLoad	pfTy	=new PlayfieldLoad(float.MaxValue, "Tyada", pid);
+				mGameAPI.Game_Request(CmdId.Request_Load_Playfield, (ushort)pid, pfTy);
+				mbRequestedTyadaLoad	=true;
+
+				mStarterLoadTimer.Start();
+			}
+		}
+
+
 		void OnGameDataTimer(Object src, ElapsedEventArgs eea)
 		{
 			if(mbStartsRecordedCastae && mbStartsRecordedTyada)
@@ -1196,6 +1351,68 @@ namespace ClanWarsModule
 				return;
 			}
 			mGameAPI.Game_Request(CmdId.Request_Playfield_List, 0, null);
+
+			if(mPlayFieldServers.Count == mIConstants["NumReservedPlayFields"])
+			{
+				if(!mbRequestedTyadaLoad)
+				{
+					int	pid	=mPlayFieldServers[0].Id;
+					mGameAPI.Console_Write("Loading starter Tyada: " + pid);
+
+					//use 2 to load the starter planets and keep them loaded
+					PlayfieldLoad	pfTy	=new PlayfieldLoad(float.MaxValue, "Tyada", pid);
+					mGameAPI.Game_Request(CmdId.Request_Load_Playfield, (ushort)pid, pfTy);
+					mbRequestedTyadaLoad	=true;
+					mTyadaPFID				=pid;
+
+					//the above command often gets ignored, retry might be needed
+					mStarterLoadTimer			=new Timer(mIConstants["StartPlayFieldsRetrySeconds"] * 1000);
+					mStarterLoadTimer.Elapsed	+=OnStarterPlayFieldTimeOut;
+					mStarterLoadTimer.Start();
+				}
+				else if(mbStartsRecordedTyada && !mbRequestedCastaeLoad)
+				{
+					int	pid	=mPlayFieldServers[1].Id;
+					mGameAPI.Console_Write("Loading starter Castae: " + pid);
+
+					//we know tyada is loaded at this point
+					PlayfieldLoad	pfCas	=new PlayfieldLoad(float.MaxValue, "Castae", pid);
+					mGameAPI.Game_Request(CmdId.Request_Load_Playfield, (ushort)pid, pfCas);
+					mbRequestedCastaeLoad	=true;
+					mCastaePFID				=pid;
+				}
+			}
+			else
+			{
+				Process	[]procs	=Process.GetProcesses();
+				foreach(Process pc in procs)
+				{
+					//mGameAPI.Console_Write("Process: " + pc.ProcessName);
+
+					if(pc.ProcessName == "EmpyrionPlayfieldServer")
+					{
+						if(!bHasPFProcess(pc))
+						{
+							mGameAPI.Console_Write("Adding process " + pc.Id + " to list of reserved.");
+							mPlayFieldServers.Add(pc);
+						}
+					}
+				}
+			}
+		}
+
+
+		void OnPlayFieldCloseTimer(Object sender, ElapsedEventArgs eea)
+		{
+			PlayFieldTimer	pft	=sender as PlayFieldTimer;
+
+			mGameAPI.Console_Write("Closing " + pft.mPlayField);
+
+			string	cmd	="stoppf '" + pft.mPlayField + "'";
+            mGameAPI.Game_Request(CmdId.Request_ConsoleCommand, 0, new Eleon.Modding.PString(cmd));
+
+			pft.Stop();
+			mPlayFieldDeSpawnTimers.Remove(pft.mPlayField);
 		}
 
 
