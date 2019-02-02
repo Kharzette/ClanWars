@@ -1,8 +1,11 @@
-﻿TeamSize				4
-MatchDurationMinutes	10
+﻿TeamSize						4
+MatchDurationMinutes			240
+NumReservedPlayFields			2
+StartPlayFieldsRetrySeconds		10
+EmptyPlayFieldShutOffSeconds	30	//non starter worlds only
 
 //the lower this number the more demand / cpu / traffic is likely spent
-PosAndRotUpdateInterval	1000	//get updates on all players position and rotation at this frequency
+PosAndRotUpdateInterval	3000	//get updates on all players position and rotation at this frequency
 
 StyxAskForMoreInterval	10		//time in seconds to ask for more goodies
 
