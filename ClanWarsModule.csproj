@@ -31,17 +31,13 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Assembly-CSharp-firstpass">
-      <HintPath>dependencies\Assembly-CSharp-firstpass.dll</HintPath>
+      <HintPath>..\sample-empyrion-mod\DeathMessenger\dependencies\Assembly-CSharp-firstpass.dll</HintPath>
     </Reference>
-    <Reference Include="Mif, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>dependencies\Mif.dll</HintPath>
-      <Private>False</Private>
+    <Reference Include="Mif">
+      <HintPath>..\sample-empyrion-mod\Empyrion Mod\dependencies\Mif.dll</HintPath>
     </Reference>
-    <Reference Include="protobuf-net, Version=2.0.0.668, Culture=neutral, PublicKeyToken=257b51d87d2e4d67, processorArchitecture=MSIL">
-      <SpecificVersion>False</SpecificVersion>
-      <HintPath>dependencies\protobuf-net.dll</HintPath>
-      <Private>False</Private>
+    <Reference Include="protobuf-net">
+      <HintPath>..\sample-empyrion-mod\Empyrion Mod\protobuf-net.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
