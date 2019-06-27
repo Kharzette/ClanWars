@@ -1,6 +1,6 @@
 # ClanWars
 
-Clone https://github.com/lostinplace/sample-empyrion-mod.git and add this project to the solution.  You'll need to fix up the paths to the missing references to point to the sample project's dependencies directory.
+Now uses the new dotnet stuff so you don't need visual studio 2015, yay!  I use VS Code.
 
 Copy the built ClanWarsModule.dll and text files to your server's mod folder in a directory called ClanWars (or whatever).
 
