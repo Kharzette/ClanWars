@@ -1,5 +1,7 @@
 # ClanWars
 
+Now uses the new dotnet stuff so you don't need visual studio 2015, yay!  I use VS Code.
+
 Copy the built ClanWarsModule.dll and text files to your server's mod folder in a directory called ClanWars (or whatever).
 
 The mod does a simple match of teamsize vs teamsize players where contributions to an AI queen (in poi on both starter worlds) rack up a score.  The best score at the end wins.
